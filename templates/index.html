@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CAdastre — Analyse parcellaire</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:       #1a3a6b;
+      --blue-light: #e8edf8;
+      --blue-mid:   #3b6cb7;
+      --red:        #dc2626;
+      --orange:     #ea580c;
+      --green:      #16a34a;
+      --amber:      #d97706;
+      --border:     #d0d7e8;
+      --bg:         #f0f4f8;
+      --text:       #1a1a2e;
+      --muted:      #6b7280;
+      --panel-bg:   #ffffff;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--blue);
+      color: #fff;
+      padding: .8rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: 0 3px 10px rgba(0,0,0,.25);
+      flex-shrink: 0;
+      z-index: 1000;
+    }
+    .logo { font-size: 1.7rem; font-weight: 800; letter-spacing: -1px; }
+    .logo span { color: #7eb8f7; }
+    .logo-sub { font-size: .73rem; opacity: .7; margin-top: .15rem; }
+    .badge {
+      margin-left: auto;
+      background: rgba(255,255,255,.12);
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 6px;
+      padding: .25rem .6rem;
+      font-size: .68rem;
+      opacity: .8;
+      text-align: right;
+      line-height: 1.5;
+    }
+
+    /* ── Main layout ── */
+    .app-layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Left sidebar ── */
+    .sidebar {
+      width: 420px;
+      min-width: 380px;
+      display: flex;
+      flex-direction: column;
+      background: var(--panel-bg);
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .search-section {
+      padding: 1rem 1.2rem;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .results-section {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0;
+    }
+
+    /* ── Search ── */
+    .panel-title {
+      font-size: .88rem;
+      font-weight: 700;
+      color: var(--blue);
+      margin-bottom: .8rem;
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+    }
+
+    .tabs { display: flex; gap: .4rem; margin-bottom: .8rem; }
+    .tab {
+      flex: 1;
+      padding: .45rem .4rem;
+      border: 2px solid var(--border);
+      border-radius: 7px;
+      background: transparent;
+      cursor: pointer;
+      font-size: .78rem;
+      font-weight: 600;
+      color: var(--muted);
+      transition: all .15s;
+    }
+    .tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .tab:hover:not(.active) { border-color: var(--blue); color: var(--blue); }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    label { display: block; font-size: .73rem; font-weight: 600; color: var(--muted); margin-bottom: .3rem; }
+
+    .input-wrap { position: relative; }
+    input[type="text"] {
+      width: 100%;
+      padding: .55rem .8rem;
+      border: 1.5px solid var(--border);
+      border-radius: 7px;
+      font-size: .88rem;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+      color: var(--text);
+    }
+    input[type="text"]:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(26,58,107,.12);
+    }
+    .hint { font-size: .68rem; color: var(--muted); margin-top: .3rem; line-height: 1.4; }
+
+    /* ── Autocomplete dropdown ── */
+    .ac-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0; right: 0;
+      background: #fff;
+      border: 1.5px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 7px 7px;
+      max-height: 220px;
+      overflow-y: auto;
+      z-index: 500;
+      display: none;
+      box-shadow: 0 6px 16px rgba(0,0,0,.12);
+    }
+    .ac-dropdown.open { display: block; }
+    .ac-item {
+      padding: .5rem .8rem;
+      cursor: pointer;
+      font-size: .82rem;
+      border-bottom: 1px solid #f3f4f6;
+      transition: background .1s;
+    }
+    .ac-item:hover, .ac-item.selected { background: var(--blue-light); }
+    .ac-item:last-child { border-bottom: none; }
+    .ac-item .ac-label { font-weight: 600; color: var(--text); }
+    .ac-item .ac-sub { font-size: .72rem; color: var(--muted); margin-top: .1rem; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: block;
+      width: 100%;
+      padding: .6rem;
+      margin-top: .8rem;
+      border: none;
+      border-radius: 8px;
+      font-size: .88rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .15s, transform .08s;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn-primary  { background: var(--blue); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #0f2548; }
+
+    /* ── Spinner ── */
+    .spinner {
+      display: none; text-align: center; color: var(--blue);
+      font-size: .78rem; margin-top: .6rem; gap: .4rem;
+      align-items: center; justify-content: center;
+    }
+    .spinner.visible { display: flex; }
+    .spin-ring {
+      width: 16px; height: 16px;
+      border: 2.5px solid var(--blue-light);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Error ── */
+    .error-box {
+      display: none; margin-top: .6rem; padding: .5rem .7rem;
+      background: #fef2f2; border: 1.5px solid #fca5a5;
+      border-radius: 7px; color: #dc2626; font-size: .78rem;
+    }
+
+    /* ── Info card (click hint on map) ── */
+    .map-hint {
+      position: absolute; bottom: 12px; left: 50%;
+      transform: translateX(-50%);
+      background: rgba(26,58,107,.9);
+      color: #fff; padding: .4rem 1rem;
+      border-radius: 20px; font-size: .75rem;
+      z-index: 600; pointer-events: none;
+      opacity: 0; transition: opacity .3s;
+    }
+    .map-hint.visible { opacity: 1; }
+
+    /* ── Result sections ── */
+    .info-section {
+      border-bottom: 1px solid var(--border);
+    }
+    .info-header {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .7rem 1.2rem;
+      cursor: pointer;
+      user-select: none;
+      transition: background .1s;
+      font-size: .82rem; font-weight: 700;
+      color: var(--blue);
+    }
+    .info-header:hover { background: var(--blue-light); }
+    .info-header .arrow {
+      margin-left: auto;
+      transition: transform .2s;
+      font-size: .7rem;
+      color: var(--muted);
+    }
+    .info-header.open .arrow { transform: rotate(90deg); }
+    .info-body {
+      display: none; padding: 0 1.2rem .8rem;
+    }
+    .info-body.open { display: block; }
+
+    .info-row {
+      display: flex; justify-content: space-between;
+      align-items: baseline; font-size: .78rem;
+      padding: .2rem 0; border-bottom: 1px solid #f0f2f5;
+      gap: .4rem;
+    }
+    .info-row:last-child { border: none; }
+    .info-row .k { color: var(--muted); flex-shrink: 0; }
+    .info-row .v { font-weight: 600; text-align: right; word-break: break-word; }
+
+    .status-badge {
+      display: inline-block;
+      padding: .15rem .5rem;
+      border-radius: 10px;
+      font-size: .7rem;
+      font-weight: 700;
+    }
+    .badge-green  { background: #dcfce7; color: #166534; }
+    .badge-red    { background: #fee2e2; color: #991b1b; }
+    .badge-orange { background: #fff7ed; color: #9a3412; }
+    .badge-blue   { background: var(--blue-light); color: var(--blue); }
+
+    .link-btn {
+      display: inline-flex; align-items: center; gap: .3rem;
+      padding: .35rem .7rem; margin-top: .4rem;
+      background: var(--blue); color: #fff;
+      border-radius: 6px; text-decoration: none;
+      font-size: .73rem; font-weight: 600;
+      transition: background .15s;
+    }
+    .link-btn:hover { background: #0f2548; }
+
+    .download-row {
+      display: flex; gap: .5rem; flex-wrap: wrap;
+      margin-top: .5rem;
+    }
+    .download-btn {
+      padding: .45rem .8rem;
+      background: var(--green); color: #fff;
+      border: none; border-radius: 7px;
+      font-size: .78rem; font-weight: 700;
+      cursor: pointer; transition: background .15s;
+    }
+    .download-btn:hover { background: #15803d; }
+    .download-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .section-loading {
+      font-size: .75rem; color: var(--muted);
+      display: flex; align-items: center; gap: .4rem;
+      padding: .3rem 0;
+    }
+    .mini-spin {
+      width: 12px; height: 12px;
+      border: 2px solid var(--blue-light);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      display: inline-block;
+    }
+
+    .empty-msg {
+      font-size: .75rem; color: var(--muted);
+      font-style: italic; padding: .3rem 0;
+    }
+
+    /* ── Map ── */
+    .map-container {
+      flex: 1;
+      position: relative;
+    }
+    #map {
+      width: 100%; height: 100%;
+    }
+    .map-placeholder {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100%; color: #b0b8cc; gap: .8rem;
+    }
+    .map-placeholder p { font-size: .85rem; }
+
+    /* ── GPS overlay on map ── */
+    .gps-overlay {
+      position: absolute; top: 10px; right: 10px;
+      background: rgba(255,255,255,.92);
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: .5rem .8rem;
+      z-index: 600; font-size: .72rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.1);
+      display: none;
+      line-height: 1.6;
+    }
+    .gps-overlay .gps-label { color: var(--muted); font-weight: 600; }
+    .gps-overlay .gps-value { color: var(--text); font-weight: 700; font-family: 'SF Mono', 'Consolas', monospace; }
+
+    /* ── Responsive ── */
+    @media (max-width: 800px) {
+      .app-layout { flex-direction: column; }
+      .sidebar { width: 100%; min-width: 0; max-height: 50vh; }
+      .map-container { min-height: 300px; }
+      .badge { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">C<span>A</span>dastre</div>
+    <div class="logo-sub">Analyse fonciere et urbanistique — Donnees IGN / DGFiP / GPU / Georisques</div>
+  </div>
+  <div class="badge">
+    Open Data France<br>
+    IGN / DGFiP / Georisques
+  </div>
+</header>
+
+<div class="app-layout">
+
+  <!-- ══ SIDEBAR ══ -->
+  <div class="sidebar">
+
+    <!-- Search section -->
+    <div class="search-section">
+      <div class="panel-title">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        Recherche de parcelle
+      </div>
+
+      <div class="tabs">
+        <button class="tab active" id="tab-btn-address" onclick="switchTab('address')">Par adresse</button>
+        <button class="tab" id="tab-btn-reference" onclick="switchTab('reference')">Par reference</button>
+      </div>
+
+      <!-- Adresse -->
+      <div class="tab-pane active" id="pane-address">
+        <label for="input-address">Adresse complete</label>
+        <div class="input-wrap">
+          <input type="text" id="input-address"
+                 placeholder="12 rue de la Paix, 75001 Paris"
+                 autocomplete="off"
+                 oninput="onAddressInput()"
+                 onkeydown="onAddressKeydown(event)">
+          <div class="ac-dropdown" id="ac-dropdown"></div>
+        </div>
+        <p class="hint">Saisissez une adresse — suggestions automatiques.</p>
+      </div>
+
+      <!-- Reference -->
+      <div class="tab-pane" id="pane-reference">
+        <label for="input-commune">Commune</label>
+        <div class="input-wrap">
+          <input type="text" id="input-commune"
+                 placeholder="Roanne, Lyon, Saint-Etienne..."
+                 autocomplete="off"
+                 oninput="onCommuneInput()"
+                 onkeydown="onCommuneKeydown(event)">
+          <div class="ac-dropdown" id="ac-commune-dropdown"></div>
+        </div>
+        <input type="hidden" id="input-commune-code">
+        <div style="margin-top:.6rem;">
+          <label for="input-ref">Section et numero de parcelle</label>
+          <input type="text" id="input-ref"
+                 placeholder="AB 0001  ou  A 42"
+                 autocomplete="off"
+                 onkeydown="if(event.key==='Enter') doSearch()">
+        </div>
+        <p class="hint">
+          Selectionnez la commune, puis saisissez la section et le numero.<br>
+          Ex : Commune <code>Roanne</code> — Parcelle <code>AB 124</code>
+        </p>
+      </div>
+
+      <button class="btn btn-primary" id="btn-search" onclick="doSearch()">
+        Rechercher la parcelle
+      </button>
+
+      <div class="spinner" id="spinner">
+        <div class="spin-ring"></div>
+        <span>Recherche en cours...</span>
+      </div>
+
+      <div class="error-box" id="error-box"></div>
+    </div>
+
+    <!-- Results sections -->
+    <div class="results-section" id="results-section" style="display:none;">
+
+      <!-- 1. Cadastre -->
+      <div class="info-section" id="sec-cadastre">
+        <div class="info-header open" onclick="toggleSection('cadastre')">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
+          </svg>
+          Cadastre
+          <span class="arrow">&#9654;</span>
+        </div>
+        <div class="info-body open" id="body-cadastre"></div>
+      </div>
+
+      <!-- 2. Urbanisme / PLU -->
+      <div class="info-section" id="sec-urbanisme">
+        <div class="info-header open" onclick="toggleSection('urbanisme')">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M3 21h18M9 8h1M9 12h1M9 16h1M14 8h1M14 12h1M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16"/>
+          </svg>
+          Urbanisme &amp; PLU
+          <span class="arrow">&#9654;</span>
+        </div>
+        <div class="info-body open" id="body-urbanisme"></div>
+      </div>
+
+      <!-- 3. Patrimoine / ABF -->
+      <div class="info-section" id="sec-patrimoine">
+        <div class="info-header open" onclick="toggleSection('patrimoine')">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+          Patrimoine &amp; ABF
+          <span class="arrow">&#9654;</span>
+        </div>
+        <div class="info-body open" id="body-patrimoine"></div>
+      </div>
+
+      <!-- 4. Risques -->
+      <div class="info-section" id="sec-risques">
+        <div class="info-header open" onclick="toggleSection('risques')">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>
+          </svg>
+          Risques &amp; ERRIAL
+          <span class="arrow">&#9654;</span>
+        </div>
+        <div class="info-body open" id="body-risques"></div>
+      </div>
+
+      <!-- PDF Download -->
+      <div style="padding: .8rem 1.2rem;">
+        <div class="download-row">
+          <button class="download-btn" id="btn-pdf" onclick="downloadPDF()">
+            Telecharger la fiche PDF
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MAP ══ -->
+  <div class="map-container">
+    <div class="map-placeholder" id="map-placeholder">
+      <svg width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.2" viewBox="0 0 24 24" opacity=".35">
+        <path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 16l4.553-2.276A1 1 0 0021 19.382V8.618a1 1 0 00-.553-.894L15 5m0 18V5M9 7l6-2"/>
+      </svg>
+      <p>Lancez une recherche ou cliquez sur la carte</p>
+    </div>
+    <div id="map" style="display:none;"></div>
+
+    <!-- GPS overlay -->
+    <div class="gps-overlay" id="gps-overlay">
+      <div><span class="gps-label">Lat</span> <span class="gps-value" id="gps-lat">—</span></div>
+      <div><span class="gps-label">Lon</span> <span class="gps-value" id="gps-lon">—</span></div>
+      <div><span class="gps-label">Alt</span> <span class="gps-value" id="gps-alt">—</span></div>
+    </div>
+
+    <!-- Map hint -->
+    <div class="map-hint" id="map-hint">Cliquez sur la carte pour selectionner une parcelle</div>
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════════════════════ */
+let activeTab     = 'address';
+let currentParcel = null;
+let currentAddr   = null;
+let currentLon    = null;
+let currentLat    = null;
+let leafMap       = null;
+let geojsonLayer  = null;
+let acTimer       = null;
+let acIndex       = -1;
+let acItems       = [];
+let mapInitialized = false;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB SWITCHING
+   ═══════════════════════════════════════════════════════════════════════════ */
+function switchTab(tab) {
+  activeTab = tab;
+  ['address', 'reference'].forEach(t => {
+    document.getElementById(`tab-btn-${t}`).classList.toggle('active', t === tab);
+    document.getElementById(`pane-${t}`).classList.toggle('active', t === tab);
+  });
+  clearResults();
+  closeAC();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AUTOCOMPLETE (BAN)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function onAddressInput() {
+  clearTimeout(acTimer);
+  const q = document.getElementById('input-address').value.trim();
+  if (q.length < 3) { closeAC(); return; }
+  acTimer = setTimeout(() => fetchAutocomplete(q), 250);
+}
+
+async function fetchAutocomplete(q) {
+  try {
+    const resp = await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    if (!data.length) { closeAC(); return; }
+    acItems = data;
+    acIndex = -1;
+    const dd = document.getElementById('ac-dropdown');
+    dd.innerHTML = data.map((item, i) =>
+      `<div class="ac-item" onmousedown="selectAC(${i})">
+        <div class="ac-label">${esc(item.label)}</div>
+        <div class="ac-sub">${esc(item.postcode)} ${esc(item.city)}</div>
+      </div>`
+    ).join('');
+    dd.classList.add('open');
+  } catch(e) { closeAC(); }
+}
+
+function onAddressKeydown(e) {
+  const dd = document.getElementById('ac-dropdown');
+  if (!dd.classList.contains('open')) {
+    if (e.key === 'Enter') doSearch();
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    acIndex = Math.min(acIndex + 1, acItems.length - 1);
+    highlightAC();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    acIndex = Math.max(acIndex - 1, 0);
+    highlightAC();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (acIndex >= 0) selectAC(acIndex);
+    else doSearch();
+  } else if (e.key === 'Escape') {
+    closeAC();
+  }
+}
+
+function highlightAC() {
+  document.querySelectorAll('.ac-item').forEach((el, i) => {
+    el.classList.toggle('selected', i === acIndex);
+  });
+}
+
+function selectAC(idx) {
+  const item = acItems[idx];
+  if (!item) return;
+  document.getElementById('input-address').value = item.label;
+  closeAC();
+  // Lancer la recherche avec les coordonnees directes
+  doSearchWithCoords(item.lon, item.lat, {
+    label: item.label,
+    city: item.city,
+    postcode: item.postcode,
+  });
+}
+
+function closeAC() {
+  document.getElementById('ac-dropdown').classList.remove('open');
+  acItems = [];
+  acIndex = -1;
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const el = document.getElementById('copy-confirm');
+    if (el) { el.style.display = 'inline'; setTimeout(() => el.style.display = 'none', 2000); }
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AUTOCOMPLETE COMMUNE (geo.api.gouv.fr)
+   ═══════════════════════════════════════════════════════════════════════════ */
+let communeTimer = null;
+let communeItems = [];
+let communeIndex = -1;
+
+function onCommuneInput() {
+  clearTimeout(communeTimer);
+  const q = document.getElementById('input-commune').value.trim();
+  if (q.length < 2) { closeCommuneAC(); return; }
+  communeTimer = setTimeout(() => fetchCommuneAC(q), 250);
+}
+
+async function fetchCommuneAC(q) {
+  try {
+    const resp = await fetch(`https://geo.api.gouv.fr/communes?nom=${encodeURIComponent(q)}&fields=nom,code,codesPostaux&boost=population&limit=6`);
+    const data = await resp.json();
+    if (!data.length) { closeCommuneAC(); return; }
+    communeItems = data;
+    communeIndex = -1;
+    const dd = document.getElementById('ac-commune-dropdown');
+    dd.innerHTML = data.map((item, i) => {
+      const cp = item.codesPostaux?.[0] || '';
+      return `<div class="ac-item" onmousedown="selectCommune(${i})">
+        <div class="ac-label">${esc(item.nom)}</div>
+        <div class="ac-sub">${esc(cp)} — INSEE ${esc(item.code)}</div>
+      </div>`;
+    }).join('');
+    dd.classList.add('open');
+  } catch(e) { closeCommuneAC(); }
+}
+
+function onCommuneKeydown(e) {
+  const dd = document.getElementById('ac-commune-dropdown');
+  if (!dd.classList.contains('open')) {
+    if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
+    return;
+  }
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    communeIndex = Math.min(communeIndex + 1, communeItems.length - 1);
+    highlightCommuneAC();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    communeIndex = Math.max(communeIndex - 1, 0);
+    highlightCommuneAC();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (communeIndex >= 0) selectCommune(communeIndex);
+    else doSearch();
+  } else if (e.key === 'Escape') {
+    closeCommuneAC();
+  }
+}
+
+function highlightCommuneAC() {
+  document.querySelectorAll('#ac-commune-dropdown .ac-item').forEach((el, i) => {
+    el.classList.toggle('selected', i === communeIndex);
+  });
+}
+
+function selectCommune(idx) {
+  const item = communeItems[idx];
+  if (!item) return;
+  const cp = item.codesPostaux?.[0] || '';
+  document.getElementById('input-commune').value = `${item.nom} (${cp})`;
+  document.getElementById('input-commune-code').value = item.code;
+  closeCommuneAC();
+  document.getElementById('input-ref').focus();
+}
+
+function closeCommuneAC() {
+  document.getElementById('ac-commune-dropdown').classList.remove('open');
+  communeItems = [];
+  communeIndex = -1;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════════════════════════════════════ */
+function getParcelBbox(parcel, padding) {
+  const lons = [], lats = [];
+  function walk(c) {
+    if (typeof c[0] === 'number') { lons.push(c[0]); lats.push(c[1]); }
+    else { for (const sub of c) walk(sub); }
+  }
+  walk(parcel?.geometry?.coordinates || []);
+  if (!lons.length) return [0, 0, 0, 0];
+  const pad = padding || 0.003;
+  return [
+    (Math.min(...lons) - pad).toFixed(6),
+    (Math.min(...lats) - pad).toFixed(6),
+    (Math.max(...lons) + pad).toFixed(6),
+    (Math.max(...lats) + pad).toFixed(6),
+  ];
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-box');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function clearResults() {
+  document.getElementById('error-box').style.display = 'none';
+  document.getElementById('results-section').style.display = 'none';
+  currentParcel = null;
+  currentAddr = null;
+  currentLon = null;
+  currentLat = null;
+}
+function setLoading(on) {
+  document.getElementById('btn-search').disabled = on;
+  document.getElementById('spinner').classList.toggle('visible', on);
+}
+function fmtArea(m2) {
+  if (!m2 && m2 !== 0) return 'N/A';
+  const ha = (m2 / 10000).toFixed(4);
+  return `${Number(m2).toLocaleString('fr-FR')} m\u00b2  (${ha} ha)`;
+}
+function loadingHTML() {
+  return '<div class="section-loading"><span class="mini-spin"></span> Chargement...</div>';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SECTION TOGGLE
+   ═══════════════════════════════════════════════════════════════════════════ */
+function toggleSection(name) {
+  const header = document.querySelector(`#sec-${name} .info-header`);
+  const body = document.getElementById(`body-${name}`);
+  header.classList.toggle('open');
+  body.classList.toggle('open');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SEARCH
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function doSearch() {
+  closeAC();
+  closeCommuneAC();
+  clearResults();
+
+  let body;
+  if (activeTab === 'address') {
+    const input = document.getElementById('input-address').value.trim();
+    if (!input) { showError('Saisissez une adresse.'); return; }
+    body = { type: 'address', address: input };
+  } else {
+    const codeInsee = document.getElementById('input-commune-code').value.trim();
+    const ref = document.getElementById('input-ref').value.trim();
+    if (!codeInsee) { showError('Selectionnez une commune.'); return; }
+    if (!ref) { showError('Saisissez la section et le numero de parcelle.'); return; }
+    body = { type: 'reference', code_insee: codeInsee, section_numero: ref };
+  }
+
+  setLoading(true);
+  try {
+
+    const resp = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { showError(data.error || 'Erreur lors de la recherche.'); return; }
+
+    onParcelFound(data.parcel, data.address || null, data.lon, data.lat);
+  } catch (e) {
+    showError('Erreur reseau.');
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function doSearchWithCoords(lon, lat, addrProps) {
+  clearResults();
+  setLoading(true);
+  try {
+    const resp = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'address', lon, lat, address_props: addrProps }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { showError(data.error || 'Erreur.'); return; }
+    onParcelFound(data.parcel, data.address || addrProps, data.lon, data.lat);
+  } catch (e) {
+    showError('Erreur reseau.');
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function doSearchByClick(lon, lat) {
+  clearResults();
+  setLoading(true);
+  try {
+    const resp = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'coords', lon, lat }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { showError(data.error || 'Aucune parcelle.'); return; }
+    onParcelFound(data.parcel, null, data.lon, data.lat);
+  } catch (e) {
+    showError('Erreur reseau.');
+  } finally {
+    setLoading(false);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PARCEL FOUND — ORCHESTRATE ALL DATA LOADING
+   ═══════════════════════════════════════════════════════════════════════════ */
+function onParcelFound(parcel, addr, lon, lat) {
+  currentParcel = parcel;
+  currentAddr = addr;
+  currentLon = lon;
+  currentLat = lat;
+
+  document.getElementById('results-section').style.display = 'block';
+
+  // 1. Cadastre (immediate)
+  displayCadastre(parcel, addr);
+
+  // 2. Show on map
+  showOnMap(parcel);
+
+  // 3. Load extra data in parallel
+  const code_insee = parcel.properties?.code_insee || '';
+
+  // Set loading state for all sections
+  document.getElementById('body-urbanisme').innerHTML = loadingHTML();
+  document.getElementById('body-patrimoine').innerHTML = loadingHTML();
+  document.getElementById('body-risques').innerHTML = loadingHTML();
+
+  // Load GPS + altitude
+  loadElevation(lon, lat);
+
+  // Load urbanisme
+  loadUrbanisme(lon, lat);
+
+  // Load patrimoine
+  loadPatrimoine(lon, lat);
+
+  // Load risques
+  loadRisques(lon, lat, code_insee);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CADASTRE DISPLAY
+   ═══════════════════════════════════════════════════════════════════════════ */
+function displayCadastre(parcel, addr) {
+  const p = parcel.properties;
+  let html = '';
+  if (addr) {
+    html += infoRow('Adresse', addr.label || '');
+  }
+  html += infoRow('Reference', `${p.code_insee} ${p.section} ${p.numero}`);
+  html += infoRow('Commune', `${p.nom_com || ''} (${p.code_insee})`);
+  html += infoRow('Section', p.section);
+  html += infoRow('Parcelle n\u00b0', p.numero);
+  html += infoRow('Contenance', fmtArea(p.contenance));
+
+  document.getElementById('body-cadastre').innerHTML = html;
+}
+
+function infoRow(key, val) {
+  return `<div class="info-row"><span class="k">${key}</span><span class="v">${val}</span></div>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GPS + ALTITUDE
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function loadElevation(lon, lat) {
+  const overlay = document.getElementById('gps-overlay');
+  overlay.style.display = 'block';
+  document.getElementById('gps-lat').textContent = lat.toFixed(6);
+  document.getElementById('gps-lon').textContent = lon.toFixed(6);
+  document.getElementById('gps-alt').textContent = '...';
+
+  try {
+    const resp = await fetch(`/api/elevation?lon=${lon}&lat=${lat}`);
+    const data = await resp.json();
+    if (data.elevation != null) {
+      document.getElementById('gps-alt').textContent = `${data.elevation.toFixed(1)} m`;
+    } else {
+      document.getElementById('gps-alt').textContent = 'N/D';
+    }
+  } catch {
+    document.getElementById('gps-alt').textContent = 'Erreur';
+  }
+
+  // Also add GPS to cadastre section
+  const body = document.getElementById('body-cadastre');
+  const altEl = document.getElementById('gps-alt');
+  body.innerHTML += infoRow('Latitude', lat.toFixed(6));
+  body.innerHTML += infoRow('Longitude', lon.toFixed(6));
+  // Altitude will be updated after fetch
+  const altRow = document.createElement('div');
+  altRow.className = 'info-row';
+  altRow.id = 'alt-row';
+  altRow.innerHTML = `<span class="k">Altitude</span><span class="v" id="alt-val">...</span>`;
+  body.appendChild(altRow);
+
+  // Update when ready
+  setTimeout(() => {
+    const el = document.getElementById('alt-val');
+    if (el) el.textContent = altEl.textContent;
+  }, 2000);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   URBANISME / PLU
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function loadUrbanisme(lon, lat) {
+  const body = document.getElementById('body-urbanisme');
+  try {
+    // Fetch zonage and PLU document in parallel
+    const [zonageResp, docResp] = await Promise.all([
+      fetch(`/api/zonage?lon=${lon}&lat=${lat}`),
+      fetch(`/api/plu-document?lon=${lon}&lat=${lat}`),
+    ]);
+    const zonageData = await zonageResp.json();
+    const docData = await docResp.json();
+
+    let html = '';
+
+    // Zonage
+    if (zonageData.zones && zonageData.zones.length > 0) {
+      for (const z of zonageData.zones) {
+        const typeClass = getZoneClass(z.typezone);
+        html += `<div class="info-row">
+          <span class="k">Zone</span>
+          <span class="v"><span class="status-badge ${typeClass}">${esc(z.typezone)}</span> ${esc(z.libelle)}</span>
+        </div>`;
+        if (z.destdomi) {
+          html += infoRow('Destination dominante', z.destdomi);
+        }
+        if (z.urlfic) {
+          html += `<div style="padding:.3rem 0;">
+            <a class="link-btn" href="${esc(z.urlfic)}" target="_blank" rel="noopener">
+              Reglement de zone (PDF)
+            </a>
+          </div>`;
+        }
+      }
+    } else {
+      html += '<div class="empty-msg">Aucun zonage PLU trouve pour cette parcelle.</div>';
+    }
+
+    // PLU Document
+    if (docData.documents && docData.documents.length > 0) {
+      html += '<div style="margin-top:.5rem; padding-top:.5rem; border-top:1px solid #eee;">';
+      for (const d of docData.documents) {
+        html += infoRow('Document', `${d.typedoc || '?'} — ${d.idurba || ''}`);
+        if (d.etat) html += infoRow('Etat', d.etat);
+        if (d.datappro) html += infoRow('Date approbation', d.datappro);
+        if (d.urlreg) {
+          html += `<div style="padding:.3rem 0;">
+            <a class="link-btn" href="${esc(d.urlreg)}" target="_blank" rel="noopener">
+              Reglement PLU (PDF)
+            </a>
+          </div>`;
+        }
+        if (d.urlplan) {
+          html += `<div style="padding:.3rem 0;">
+            <a class="link-btn" href="${esc(d.urlplan)}" target="_blank" rel="noopener">
+              Plan de zonage
+            </a>
+          </div>`;
+        }
+      }
+      // Liens Geoportail Urbanisme
+      const pp = currentParcel?.properties || {};
+      const gpuParcelId = `${pp.code_dep || ''}_${pp.code_com || ''}_${pp.com_abs || '000'}_${pp.code_arr || '000'}_${pp.section || ''}_${pp.numero || ''}`;
+      html += `<div style="padding:.3rem 0; display:flex; gap:.4rem; flex-wrap:wrap;">
+        <a class="link-btn" href="https://www.geoportail-urbanisme.gouv.fr/map/#tile=1&lon=${lon}&lat=${lat}&zoom=19" target="_blank" rel="noopener">
+          Carte PLU (cliquer la parcelle)
+        </a>
+        <a class="link-btn" href="https://www.geoportail-urbanisme.gouv.fr/map/parcel-info/${gpuParcelId}/" target="_blank" rel="noopener">
+          Fiche parcelle
+        </a>
+      </div>`;
+      html += '</div>';
+    }
+
+    body.innerHTML = html || '<div class="empty-msg">Aucune donnee d\'urbanisme disponible.</div>';
+  } catch (e) {
+    body.innerHTML = `<div class="empty-msg">Erreur lors du chargement des donnees d'urbanisme.</div>`;
+  }
+}
+
+function getZoneClass(type) {
+  if (!type) return 'badge-blue';
+  const t = type.toUpperCase();
+  if (t === 'U') return 'badge-green';
+  if (t === 'AU' || t.startsWith('AU')) return 'badge-orange';
+  if (t === 'A') return 'badge-orange';
+  if (t === 'N') return 'badge-red';
+  return 'badge-blue';
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PATRIMOINE / ABF
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function loadPatrimoine(lon, lat) {
+  const body = document.getElementById('body-patrimoine');
+  try {
+    const resp = await fetch(`/api/patrimoine?lon=${lon}&lat=${lat}`);
+    const data = await resp.json();
+
+    let html = '';
+
+    if (data.is_abf) {
+      html += `<div class="info-row">
+        <span class="k">Secteur protege</span>
+        <span class="v"><span class="status-badge badge-red">OUI — Perimetre ABF</span></span>
+      </div>`;
+      for (const p of data.patrimoine) {
+        html += infoRow('Type', p.typepsc);
+        html += infoRow('Description', p.libelle);
+        if (p.urlfic) {
+          html += `<div style="padding:.3rem 0;">
+            <a class="link-btn" href="${esc(p.urlfic)}" target="_blank" rel="noopener">Document</a>
+          </div>`;
+        }
+      }
+    } else {
+      html += `<div class="info-row">
+        <span class="k">Secteur protege</span>
+        <span class="v"><span class="status-badge badge-green">NON</span></span>
+      </div>`;
+    }
+
+    if (data.all_prescriptions && data.all_prescriptions.length > 0) {
+      html += '<div style="margin-top:.4rem; padding-top:.4rem; border-top:1px solid #eee;">';
+      html += '<div style="font-size:.72rem; color:var(--muted); font-weight:600; margin-bottom:.2rem;">Autres prescriptions :</div>';
+      for (const p of data.all_prescriptions) {
+        if (!p.typepsc.startsWith('AC') && !p.typepsc.startsWith('05')) {
+          html += `<div class="info-row"><span class="k">${esc(p.typepsc)}</span><span class="v">${esc(p.libelle)}</span></div>`;
+        }
+      }
+      html += '</div>';
+    }
+
+    // Liens cartographiques patrimoine — bbox de la parcelle pour zoom direct
+    const parcelBbox = getParcelBbox(currentParcel, 0.001);
+    const atlasBbox = `${parcelBbox[0]}%3B${parcelBbox[1]}%3B${parcelBbox[2]}%3B${parcelBbox[3]}`;
+    html += `<div style="padding:.5rem 0; display:flex; gap:.4rem; flex-wrap:wrap;">
+      <a class="link-btn" href="https://www.geoportail.gouv.fr/carte?c=${lon},${lat}&z=17&permalink=yes" target="_blank" rel="noopener">
+        Carte Geoportail IGN
+      </a>
+      <a class="link-btn" href="http://atlas.patrimoines.culture.fr/atlas/trunk/index.php?ap_theme=DOMREG&ap_bbox=${atlasBbox}" target="_blank" rel="noopener">
+        Carte ABF — Atlas des Patrimoines
+      </a>
+    </div>
+    <div style="font-size:.68rem; color:var(--muted); margin-top:.2rem; line-height:1.4;">
+      Sur le Geoportail IGN : menu Donnees > Culture et patrimoine > Monuments historiques.<br>
+      Sur l'Atlas des Patrimoines : visualisez les perimetres ABF et monuments historiques de la commune.
+    </div>`;
+
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<div class="empty-msg">Erreur lors du chargement.</div>';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RISQUES / ERRIAL
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function loadRisques(lon, lat, code_insee) {
+  const body = document.getElementById('body-risques');
+  try {
+    const resp = await fetch(`/api/risques?lon=${lon}&lat=${lat}&code_insee=${code_insee}`);
+    const data = await resp.json();
+
+    let html = '';
+
+    if (data.risques && data.risques.length > 0) {
+      html += `<div class="info-row">
+        <span class="k">Risques identifies</span>
+        <span class="v"><span class="status-badge badge-orange">${data.risques.length} risque(s)</span></span>
+      </div>`;
+      for (const r of data.risques) {
+        const lib = r.libelle_risque_jo || r.libelle || 'Risque non libelle';
+        html += `<div class="info-row"><span class="k">&#9888;</span><span class="v">${esc(lib)}</span></div>`;
+      }
+    } else {
+      html += `<div class="info-row">
+        <span class="k">Risques identifies</span>
+        <span class="v"><span class="status-badge badge-green">Aucun recense</span></span>
+      </div>`;
+    }
+
+    // Bouton copier adresse
+    const addrLabel = currentAddr?.label || '';
+    const parcelRef = currentParcel?.properties ? `${currentParcel.properties.nom_com || ''} - Parcelle ${currentParcel.properties.section || ''}${currentParcel.properties.numero || ''}` : '';
+    const clipText = addrLabel || parcelRef;
+    if (clipText) {
+      html += `<div style="margin-top:.5rem;">
+        <button class="link-btn" style="border:none;cursor:pointer;" onclick="copyToClipboard('${clipText.replace(/'/g, "\\'")}')">
+          Copier l'adresse dans le presse-papier
+        </button>
+        <span id="copy-confirm" style="font-size:.7rem;color:var(--green);margin-left:.4rem;display:none;">Copie !</span>
+      </div>`;
+    }
+
+    // Liens ERRIAL et Georisques
+    html += '<div class="download-row" style="margin-top:.5rem;">';
+    if (data.errial_url) {
+      html += `<a class="link-btn" href="${esc(data.errial_url)}" target="_blank" rel="noopener">
+        Etat des risques (ERRIAL)
+      </a>`;
+    }
+    html += '</div>';
+
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<div class="empty-msg">Erreur lors du chargement des risques.</div>';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAP (LEAFLET)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function initMap() {
+  if (mapInitialized) return;
+  mapInitialized = true;
+
+  document.getElementById('map-placeholder').style.display = 'none';
+  document.getElementById('map').style.display = 'block';
+
+  leafMap = L.map('map', { zoomControl: true }).setView([46.6, 2.5], 6);
+
+  // Plan IGN v2
+  L.tileLayer(
+    'https://data.geopf.fr/wmts?' +
+    'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+    '&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2' +
+    '&STYLE=normal&FORMAT=image/png' +
+    '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+    { attribution: '&copy; IGN Geoplateforme', maxZoom: 20 }
+  ).addTo(leafMap);
+
+  // Couche cadastrale
+  L.tileLayer(
+    'https://data.geopf.fr/wmts?' +
+    'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+    '&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS' +
+    '&STYLE=normal&FORMAT=image/png' +
+    '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+    { opacity: 0.7, maxZoom: 20 }
+  ).addTo(leafMap);
+
+  // Click handler for parcel selection
+  leafMap.on('click', function(e) {
+    const { lat, lng } = e.latlng;
+    doSearchByClick(lng, lat);
+  });
+
+  // Show hint
+  const hint = document.getElementById('map-hint');
+  hint.classList.add('visible');
+  setTimeout(() => hint.classList.remove('visible'), 4000);
+}
+
+function showOnMap(parcel) {
+  initMap();
+
+  if (geojsonLayer) geojsonLayer.remove();
+
+  geojsonLayer = L.geoJSON(parcel, {
+    style: {
+      color:       '#dc2626',
+      weight:      3,
+      fillColor:   '#dc2626',
+      fillOpacity: 0.15,
+      dashArray:   '',
+    }
+  }).addTo(leafMap);
+
+  leafMap.fitBounds(geojsonLayer.getBounds(), { padding: [60, 60], maxZoom: 18 });
+
+  // Re-show hint
+  const hint = document.getElementById('map-hint');
+  hint.classList.add('visible');
+  setTimeout(() => hint.classList.remove('visible'), 3000);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PDF DOWNLOAD
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function downloadPDF() {
+  if (!currentParcel) return;
+  const btn = document.getElementById('btn-pdf');
+  btn.disabled = true;
+  btn.textContent = 'Generation du PDF...';
+
+  try {
+    const resp = await fetch('/api/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parcel: currentParcel, address: currentAddr }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      showError(err.error || 'Erreur PDF.');
+      return;
+    }
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const p = currentParcel.properties;
+    a.download = `fiche_${p.code_insee}_${p.section}_${p.numero}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showError('Erreur telechargement.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Telecharger la fiche PDF';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INIT — SHOW MAP IMMEDIATELY
+   ═══════════════════════════════════════════════════════════════════════════ */
+// Auto-init map on load so user can click right away
+window.addEventListener('load', () => {
+  initMap();
+});
+
+// Close autocomplete on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.input-wrap')) { closeAC(); closeCommuneAC(); }
+});
+</script>
+</body>
+</html>
