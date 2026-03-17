@@ -1089,15 +1089,11 @@ async function loadPatrimoine(lon, lat) {
     const parcelBbox = getParcelBbox(currentParcel, 0.001);
     const atlasBbox = `${parcelBbox[0]}%3B${parcelBbox[1]}%3B${parcelBbox[2]}%3B${parcelBbox[3]}`;
     html += `<div style="padding:.5rem 0; display:flex; gap:.4rem; flex-wrap:wrap;">
-      <a class="link-btn" href="https://www.geoportail.gouv.fr/carte?c=${lon},${lat}&z=17&permalink=yes" target="_blank" rel="noopener">
-        Carte Geoportail IGN
-      </a>
       <a class="link-btn" href="http://atlas.patrimoines.culture.fr/atlas/trunk/index.php?ap_theme=DOMREG&ap_bbox=${atlasBbox}" target="_blank" rel="noopener">
         Carte ABF — Atlas des Patrimoines
       </a>
     </div>
     <div style="font-size:.68rem; color:var(--muted); margin-top:.2rem; line-height:1.4;">
-      Sur le Geoportail IGN : menu Donnees > Culture et patrimoine > Monuments historiques.<br>
       Sur l'Atlas des Patrimoines : visualisez les perimetres ABF et monuments historiques de la commune.
     </div>`;
 
