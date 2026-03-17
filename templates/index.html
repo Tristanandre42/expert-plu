@@ -1210,14 +1210,26 @@ function loadSEM(code_insee) {
     <span class="v" style="font-family:monospace;font-size:.85rem;">${esc(pp.section || '')} ${esc(pp.numero || '')}</span>
   </div>`;
 
-  // Bouton copier la reference
-  const refText = `${pp.section || ''} ${pp.numero || ''}`;
-  html += `<div style="margin-top:.4rem;">
-    <button class="link-btn" style="border:none;cursor:pointer;background:var(--blue);" onclick="copyToClipboard('${refText.replace(/'/g, "\\'")}')">
-      Copier la reference cadastrale
-    </button>
-    <span id="copy-sem" style="font-size:.7rem;color:var(--green);margin-left:.4rem;display:none;">Copie !</span>
-  </div>`;
+  // Bouton copier l'adresse (sans code postal ni commune)
+  let semAddr = '';
+  if (currentAddr?.label) {
+    // label BAN = "12 Rue Example 42000 Saint-Etienne" → retirer CP + commune
+    const lbl = currentAddr.label;
+    const cp = currentAddr.postcode || '';
+    if (cp && lbl.includes(cp)) {
+      semAddr = lbl.substring(0, lbl.indexOf(cp)).trim();
+    } else {
+      semAddr = lbl;
+    }
+  }
+  if (semAddr) {
+    html += `<div style="margin-top:.4rem;">
+      <button class="link-btn" style="border:none;cursor:pointer;background:var(--blue);" onclick="copyToClipboard('${semAddr.replace(/'/g, "\\'")}')">
+        Copier l'adresse
+      </button>
+      <span id="copy-sem" style="font-size:.7rem;color:var(--green);margin-left:.4rem;display:none;">Copie !</span>
+    </div>`;
+  }
 
   // Liens
   html += '<div class="download-row" style="margin-top:.6rem;">';
