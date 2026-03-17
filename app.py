@@ -3,10 +3,17 @@ CAdastre — Application PropTech d'analyse de parcelles foncieres
 APIs : BAN, API Carto (Cadastre + GPU), IGN Geoplateforme, Georisques
 """
 
+from __future__ import annotations
+
 import io
 import re
+import sys
 import json
+import logging
 from datetime import datetime
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 import requests
 from flask import Flask, render_template, request, send_file, jsonify
@@ -22,6 +29,7 @@ from reportlab.platypus import (
 )
 
 app = Flask(__name__)
+logger.info("Flask app created successfully")
 
 # ─── API base URLs ────────────────────────────────────────────────────────────
 
