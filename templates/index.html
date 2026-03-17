@@ -486,6 +486,18 @@
         <div class="info-body open" id="body-risques"></div>
       </div>
 
+      <!-- 5. Saint-Etienne Metropole -->
+      <div class="info-section" id="sec-sem" style="display:none;">
+        <div class="info-header open" onclick="toggleSection('sem')">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/>
+          </svg>
+          Saint-Etienne Metropole
+          <span class="arrow">&#9654;</span>
+        </div>
+        <div class="info-body open" id="body-sem"></div>
+      </div>
+
       <!-- PDF Download -->
       <div style="padding: .8rem 1.2rem;">
         <div class="download-row">
@@ -886,6 +898,9 @@ function onParcelFound(parcel, addr, lon, lat) {
 
   // Load risques
   loadRisques(lon, lat, code_insee);
+
+  // Saint-Etienne Metropole
+  loadSEM(code_insee);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1156,6 +1171,70 @@ async function loadRisques(lon, lat, code_insee) {
   } catch (e) {
     body.innerHTML = '<div class="empty-msg">Erreur lors du chargement des risques.</div>';
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SAINT-ETIENNE METROPOLE
+   ═══════════════════════════════════════════════════════════════════════════ */
+const SEM_COMMUNES = new Set([
+  '42001','42005','42031','42032','42036','42043','42044','42053',
+  '42083','42085','42092','42093','42095','42096','42097','42099',
+  '42100','42103','42110','42123','42133','42167','42183','42186',
+  '42189','42192','42206','42207','42208','42210','42218','42222',
+  '42223','42225','42234','42237','42242','42259','42262','42266',
+  '42270','42271','42275','42283','42302','42305','42307','42308',
+  '42311','42316','42320','42322','42330',
+]);
+
+function loadSEM(code_insee) {
+  const section = document.getElementById('sec-sem');
+  const body = document.getElementById('body-sem');
+
+  if (!SEM_COMMUNES.has(code_insee)) {
+    section.style.display = 'none';
+    return;
+  }
+
+  section.style.display = 'block';
+  const pp = currentParcel?.properties || {};
+  const ref = `${pp.section || ''}${pp.numero || ''}`;
+  const commune = pp.nom_com || '';
+
+  let html = '';
+  html += `<div class="info-row">
+    <span class="k">Commune</span>
+    <span class="v"><span class="status-badge badge-green">Membre de SEM</span> ${esc(commune)}</span>
+  </div>`;
+  html += `<div class="info-row">
+    <span class="k">Reference a utiliser</span>
+    <span class="v" style="font-family:monospace;font-size:.85rem;">${esc(pp.section || '')} ${esc(pp.numero || '')}</span>
+  </div>`;
+
+  // Bouton copier la reference
+  const refText = `${pp.section || ''} ${pp.numero || ''}`;
+  html += `<div style="margin-top:.4rem;">
+    <button class="link-btn" style="border:none;cursor:pointer;background:var(--blue);" onclick="copyToClipboard('${refText.replace(/'/g, "\\'")}')">
+      Copier la reference cadastrale
+    </button>
+    <span id="copy-sem" style="font-size:.7rem;color:var(--green);margin-left:.4rem;display:none;">Copie !</span>
+  </div>`;
+
+  // Liens
+  html += '<div class="download-row" style="margin-top:.6rem;">';
+  html += `<a class="link-btn" href="https://extranet.saint-etienne.fr/extrasig/intra_wm/referentiel/plu/Plu.php" target="_blank" rel="noopener">
+    PLU SEM — Carte interactive
+  </a>`;
+  if (code_insee === '42218') {
+    html += `<a class="link-btn" href="https://connect.saint-etienne.fr/demarche/97/4" target="_blank" rel="noopener">
+      Fiche urbanisme Saint-Etienne
+    </a>`;
+  }
+  html += '</div>';
+  html += `<div style="font-size:.68rem; color:var(--muted); margin-top:.3rem; line-height:1.4;">
+    Sur le portail SIG : selectionnez la commune <b>${esc(commune)}</b>, puis recherchez la parcelle <b>${esc(ref)}</b>.
+  </div>`;
+
+  body.innerHTML = html;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
