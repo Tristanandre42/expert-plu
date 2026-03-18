@@ -268,20 +268,16 @@ def wms_image(bbox: list, layers: str, width=800, height=600, transparent=True) 
 
 
 def build_map(bbox: list, width=800, height=600) -> io.BytesIO | None:
-    plan    = wms_image(bbox, "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", width, height, transparent=False)
+    """Carte 2D : fond neutre + parcelles cadastrales."""
     parcels = wms_image(bbox, "CADASTRALPARCELS.PARCELLAIRE_EXPRESS", width, height, transparent=True)
-    if plan and parcels:
-        base    = PILImage.open(io.BytesIO(plan)).convert("RGBA")
-        overlay = PILImage.open(io.BytesIO(parcels)).convert("RGBA")
-        combined = PILImage.alpha_composite(base, overlay).convert("RGB")
-    elif plan:
-        combined = PILImage.open(io.BytesIO(plan)).convert("RGB")
-    elif parcels:
-        combined = PILImage.open(io.BytesIO(parcels)).convert("RGB")
-    else:
+    if not parcels:
         return None
+    # Fond blanc + overlay cadastral = carte 2D propre
+    base = PILImage.new("RGBA", (width, height), (255, 255, 255, 255))
+    overlay = PILImage.open(io.BytesIO(parcels)).convert("RGBA")
+    combined = PILImage.alpha_composite(base, overlay).convert("RGB")
     buf = io.BytesIO()
-    combined.save(buf, format="JPEG", quality=92)
+    combined.save(buf, format="JPEG", quality=95)
     buf.seek(0)
     return buf
 
@@ -291,8 +287,66 @@ def build_map(bbox: list, width=800, height=600) -> io.BytesIO | None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 BLUE       = colors.HexColor("#1a3a6b")
+DARK_BLUE  = colors.HexColor("#0f2847")
 LIGHT_BLUE = colors.HexColor("#e8edf8")
-GREY_LINE  = colors.HexColor("#cccccc")
+ACCENT     = colors.HexColor("#2563eb")
+GREY_LINE  = colors.HexColor("#d1d5db")
+GREY_BG    = colors.HexColor("#f8f9fa")
+TEXT_DARK   = colors.HexColor("#1f2937")
+TEXT_MID    = colors.HexColor("#4b5563")
+TEXT_LIGHT  = colors.HexColor("#6b7280")
+GREEN_BG   = colors.HexColor("#ecfdf5")
+GREEN_TXT  = colors.HexColor("#065f46")
+RED_BG     = colors.HexColor("#fef2f2")
+RED_TXT    = colors.HexColor("#991b1b")
+
+
+def _section_header(title: str, avail_w: float) -> Table:
+    """Bandeau colore pour titres de section."""
+    tbl = Table(
+        [[Paragraph(f"<b>{title}</b>",
+                    ParagraphStyle("sh", fontSize=11, fontName="Helvetica-Bold",
+                                   textColor=colors.white, leading=14))]],
+        colWidths=[avail_w],
+        rowHeights=[0.7 * cm],
+    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), BLUE),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("TOPPADDING",    (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("ROUNDEDCORNERS", [4, 4, 0, 0]),
+    ]))
+    return tbl
+
+
+def _kv_table(rows: list[tuple[str, str]], avail_w: float) -> Table:
+    """Tableau cle-valeur professionnel a 2 colonnes."""
+    key_w = avail_w * 0.35
+    val_w = avail_w * 0.65
+    key_style = ParagraphStyle("k", fontSize=9, fontName="Helvetica-Bold",
+                                textColor=TEXT_MID, leading=12)
+    val_style = ParagraphStyle("v", fontSize=9.5, fontName="Helvetica",
+                                textColor=TEXT_DARK, leading=12)
+    data = []
+    for k, v in rows:
+        data.append([Paragraph(k, key_style), Paragraph(str(v), val_style)])
+    tbl = Table(data, colWidths=[key_w, val_w])
+    style_cmds = [
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (0, -1), 10),
+        ("LEFTPADDING",   (1, 0), (1, -1), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LINEBELOW",     (0, 0), (-1, -2), 0.5, GREY_LINE),
+    ]
+    # Alternate row background
+    for i in range(len(data)):
+        if i % 2 == 0:
+            style_cmds.append(("BACKGROUND", (0, i), (-1, i), GREY_BG))
+    tbl.setStyle(TableStyle(style_cmds))
+    return tbl
 
 
 def make_pdf(parcel: dict, address_props: dict | None = None,
@@ -323,154 +377,189 @@ def make_pdf(parcel: dict, address_props: dict | None = None,
         leftMargin=1.5 * cm, rightMargin=1.5 * cm,
         topMargin=1.5 * cm, bottomMargin=1.5 * cm,
         title=f"Parcelle cadastrale {code_insee} {section} {numero}",
-        author="CAdastre",
+        author="Expert PLU",
     )
 
-    h1 = ParagraphStyle("h1", fontSize=20, textColor=BLUE,
-                         fontName="Helvetica-Bold", spaceAfter=4, alignment=TA_CENTER)
-    sub = ParagraphStyle("sub", fontSize=11, textColor=colors.HexColor("#555555"),
-                         spaceAfter=10, alignment=TA_CENTER)
-    h2 = ParagraphStyle("h2", fontSize=13, textColor=BLUE,
-                         fontName="Helvetica-Bold", spaceBefore=14, spaceAfter=6)
-    h3 = ParagraphStyle("h3", fontSize=10, textColor=BLUE,
-                         fontName="Helvetica-Bold", spaceBefore=8, spaceAfter=4)
-    legend = ParagraphStyle("legend", fontSize=7.5, textColor=colors.HexColor("#555555"),
-                            alignment=TA_CENTER, fontName="Helvetica-Oblique")
-    foot = ParagraphStyle("foot", fontSize=7, textColor=colors.HexColor("#999999"),
-                          alignment=TA_CENTER)
-    normal = ParagraphStyle("norm", fontSize=9, spaceAfter=3)
-    small = ParagraphStyle("small", fontSize=8, textColor=colors.HexColor("#555555"),
-                           spaceAfter=2)
-    link_style = ParagraphStyle("link", fontSize=8, textColor=colors.HexColor("#2563eb"),
-                                spaceAfter=2)
+    avail_w = A4[0] - 3 * cm
+
+    # ── Styles
+    h1 = ParagraphStyle("h1", fontSize=22, textColor=DARK_BLUE,
+                         fontName="Helvetica-Bold", spaceAfter=2, alignment=TA_CENTER,
+                         leading=26)
+    sub = ParagraphStyle("sub", fontSize=10, textColor=TEXT_LIGHT,
+                         spaceAfter=6, alignment=TA_CENTER, leading=13)
+    ref_style = ParagraphStyle("ref", fontSize=13, textColor=BLUE,
+                                fontName="Helvetica-Bold", alignment=TA_CENTER,
+                                spaceAfter=2, leading=16)
+    legend = ParagraphStyle("legend", fontSize=7, textColor=TEXT_LIGHT,
+                            alignment=TA_CENTER, fontName="Helvetica-Oblique",
+                            spaceBefore=3, spaceAfter=6)
+    foot = ParagraphStyle("foot", fontSize=7, textColor=TEXT_LIGHT,
+                          alignment=TA_CENTER, leading=10)
+    normal = ParagraphStyle("norm", fontSize=9.5, spaceAfter=3, leading=12,
+                            textColor=TEXT_DARK)
+    small = ParagraphStyle("small", fontSize=8.5, textColor=TEXT_MID,
+                           spaceAfter=2, leading=11)
+    bullet = ParagraphStyle("bullet", fontSize=9.5, spaceAfter=2, leading=12,
+                            textColor=TEXT_DARK, leftIndent=12, bulletIndent=0)
+    link_p = ParagraphStyle("linkp", fontSize=8.5, textColor=ACCENT,
+                            spaceAfter=3, leading=11, leftIndent=12)
 
     if contenance:
         area_str = f"{int(contenance):,} m\u00b2  ({contenance / 10_000:.4f} ha)".replace(",", "\u202f")
     else:
         area_str = "N/A"
 
-    # ── Main info table
-    headers = ["Reference cadastrale", "Commune (INSEE)", "Section", "Parcelle", "Contenance"]
-    values  = [
-        f"{code_insee} {section} {numero}",
-        f"{city}\n({code_insee})" if city else code_insee,
-        section, numero, area_str,
-    ]
-    if address_props:
-        headers.insert(0, "Adresse")
-        values.insert(0, address_props.get("label", ""))
-
-    n_cols = len(headers)
-    col_w  = (A4[0] - 3 * cm) / n_cols
-    tbl = Table([headers, values], colWidths=[col_w] * n_cols)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 9),
-        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("BACKGROUND",    (0, 1), (-1, 1), LIGHT_BLUE),
-        ("GRID",          (0, 0), (-1, -1), 0.5, GREY_LINE),
-        ("TOPPADDING",    (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-    ]))
-
-    # ── GPS table
-    gps_headers = ["Latitude", "Longitude", "Altitude"]
     alt_str = f"{elevation:.1f} m" if elevation is not None else "N/D"
-    gps_values = [f"{clat:.6f}", f"{clon:.6f}", alt_str]
-    gps_col_w = (A4[0] - 3 * cm) / 3
-    tbl_gps = Table([gps_headers, gps_values], colWidths=[gps_col_w] * 3)
-    tbl_gps.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), BLUE),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 9),
-        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        ("BACKGROUND",    (0, 1), (-1, 1), LIGHT_BLUE),
-        ("GRID",          (0, 0), (-1, -1), 0.5, GREY_LINE),
-        ("TOPPADDING",    (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ref_full = f"{code_insee} {section} {numero}"
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  STORY
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    story = []
+
+    # ── En-tete
+    # Barre de titre pleine largeur
+    title_tbl = Table(
+        [[Paragraph("<b>FICHE PARCELLE</b>",
+                     ParagraphStyle("t", fontSize=18, fontName="Helvetica-Bold",
+                                    textColor=colors.white, alignment=TA_CENTER, leading=22)),
+          ]],
+        colWidths=[avail_w],
+        rowHeights=[1.0 * cm],
+    )
+    title_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), DARK_BLUE),
+        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+        ("ROUNDEDCORNERS", [6, 6, 0, 0]),
     ]))
+    subtitle_tbl = Table(
+        [[Paragraph(f"Analyse fonciere et urbanistique — {city}",
+                     ParagraphStyle("st", fontSize=9, textColor=TEXT_MID,
+                                    alignment=TA_CENTER, leading=12))]],
+        colWidths=[avail_w],
+        rowHeights=[0.55 * cm],
+    )
+    subtitle_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT_BLUE),
+        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+        ("ROUNDEDCORNERS", [0, 0, 6, 6]),
+    ]))
+    story += [title_tbl, subtitle_tbl, Spacer(1, 0.4 * cm)]
 
-    # ── Story
-    story = [
-        Paragraph("FICHE PARCELLE", h1),
-        Paragraph(f"Analyse fonciere — {city}", sub),
-        HRFlowable(width="100%", thickness=2, color=BLUE, spaceAfter=8),
-        tbl,
-        Spacer(1, 0.2 * cm),
-        tbl_gps,
-        Spacer(1, 0.3 * cm),
+    # ── Identification parcelle
+    story.append(_section_header("Identification de la parcelle", avail_w))
+    id_rows = []
+    if address_props:
+        id_rows.append(("Adresse", address_props.get("label", "")))
+    id_rows += [
+        ("Reference cadastrale", ref_full),
+        ("Commune", f"{city} ({code_insee})"),
+        ("Section / Parcelle", f"{section} / {numero}"),
+        ("Contenance", area_str),
     ]
+    story += [_kv_table(id_rows, avail_w), Spacer(1, 0.3 * cm)]
 
-    # Map image
+    # ── Localisation GPS
+    story.append(_section_header("Localisation", avail_w))
+    gps_rows = [
+        ("Latitude", f"{clat:.6f}"),
+        ("Longitude", f"{clon:.6f}"),
+        ("Altitude", alt_str),
+    ]
+    story += [_kv_table(gps_rows, avail_w), Spacer(1, 0.3 * cm)]
+
+    # ── Carte cadastrale 2D
     if map_buf:
-        avail_w = A4[0] - 3 * cm
-        img_h   = min(avail_w * 0.65, A4[1] - 16 * cm)
+        story.append(_section_header("Plan cadastral", avail_w))
+        img_h = min(avail_w * 0.6, 11 * cm)
+        # Cadre autour de la carte
+        map_tbl = Table(
+            [[Image(map_buf, width=avail_w - 4, height=img_h)]],
+            colWidths=[avail_w],
+        )
+        map_tbl.setStyle(TableStyle([
+            ("BOX",        (0, 0), (-1, -1), 1, GREY_LINE),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("LEFTPADDING",  (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ]))
         story += [
-            Image(map_buf, width=avail_w, height=img_h),
-            Spacer(1, 0.15 * cm),
-            Paragraph("Plan cadastral — Source : IGN Geoplateforme / DGFiP — donnees indicatives", legend),
+            map_tbl,
+            Paragraph("Source : IGN Geoplateforme / DGFiP — Donnees indicatives, sans valeur juridique", legend),
         ]
 
     # ── Document d'urbanisme (PLU)
-    story.append(Paragraph("Document d'urbanisme", h2))
+    story += [Spacer(1, 0.2 * cm), _section_header("Document d'urbanisme", avail_w)]
     if plu_docs:
+        doc_rows = []
         for d in plu_docs:
             dp = d.get("properties", {})
             typedoc = dp.get("typedoc", "?")
-            etat = dp.get("etat", "")
             idurba = dp.get("idurba", "")
+            etat = dp.get("etat", "")
             datappro = dp.get("datappro", "")
-            datefin = dp.get("datefin", "")
-            story.append(Paragraph(f"<b>{typedoc}</b> — {idurba}", normal))
+            doc_rows.append(("Type", typedoc))
+            if idurba:
+                doc_rows.append(("Identifiant", idurba))
             if etat:
-                story.append(Paragraph(f"Etat : {etat}", small))
+                doc_rows.append(("Etat", etat))
             if datappro:
-                story.append(Paragraph(f"Date d'approbation : {datappro}", small))
-            if datefin:
-                story.append(Paragraph(f"Date de fin : {datefin}", small))
+                doc_rows.append(("Date d'approbation", datappro))
+        story.append(_kv_table(doc_rows, avail_w))
     else:
         story.append(Paragraph("Aucun document d'urbanisme trouve.", small))
 
     # ── Zonage PLU
-    story.append(Paragraph("Zonage PLU", h2))
+    story += [Spacer(1, 0.2 * cm), _section_header("Zonage PLU", avail_w)]
     if zonage_info:
+        zone_rows = []
         for z in zonage_info:
             zp = z.get("properties", {})
             zone_type = zp.get("typezone", "?")
             libelle = zp.get("libelle", zp.get("libelong", ""))
             dest = zp.get("destdomi", "")
-            datvalid = zp.get("datvalid", "")
             nomfic = zp.get("nomfic", "")
-            line = f"<b>{zone_type}</b>"
+            zone_label = zone_type
             if libelle:
-                line += f" — {libelle}"
+                zone_label += f" — {libelle}"
+            zone_rows.append(("Zone", zone_label))
             if dest:
-                line += f" (destination : {dest})"
-            story.append(Paragraph(line, normal))
-            if datvalid:
-                story.append(Paragraph(f"Date de validite : {datvalid}", small))
+                zone_rows.append(("Destination dominante", dest))
             if nomfic:
-                story.append(Paragraph(f"Reglement : {nomfic}", small))
+                zone_rows.append(("Reglement", nomfic))
+        story.append(_kv_table(zone_rows, avail_w))
     else:
         story.append(Paragraph("Aucun zonage PLU trouve pour cette parcelle.", small))
 
     # ── Patrimoine / ABF
-    story.append(Paragraph("Secteurs proteges (ABF / Patrimoine)", h2))
+    story += [Spacer(1, 0.2 * cm), _section_header("Patrimoine et servitudes (ABF)", avail_w)]
     if patrimoine_info:
+        pat_rows = []
         for p_feat in patrimoine_info:
             pp = p_feat.get("properties", {})
             lib = pp.get("libelle", pp.get("txt", "Prescription surfacique"))
             typep = pp.get("typepsc", "")
-            story.append(Paragraph(f"<b>{typep}</b> — {lib}", normal))
+            pat_rows.append((typep, lib))
+        story.append(_kv_table(pat_rows, avail_w))
     else:
-        story.append(Paragraph("Aucun perimetre de protection ABF identifie.", small))
+        # Badge vert "aucune servitude"
+        ok_tbl = Table(
+            [[Paragraph("Aucun perimetre de protection ABF identifie",
+                         ParagraphStyle("ok", fontSize=9, textColor=GREEN_TXT, leading=12))]],
+            colWidths=[avail_w],
+        )
+        ok_tbl.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, -1), GREEN_BG),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+            ("TOPPADDING",    (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(ok_tbl)
 
-    # ── Prescriptions surfaciques (toutes)
+    # ── Prescriptions surfaciques (non ABF)
     non_abf = []
     if all_prescriptions:
         for p in all_prescriptions:
@@ -479,28 +568,45 @@ def make_pdf(parcel: dict, address_props: dict | None = None,
             if not typepsc.startswith("AC") and not typepsc.startswith("05"):
                 non_abf.append(pp)
     if non_abf:
-        story.append(Paragraph("Autres prescriptions surfaciques", h3))
+        story += [Spacer(1, 0.2 * cm), _section_header("Autres prescriptions surfaciques", avail_w)]
+        presc_rows = []
         for pp in non_abf:
             typep = pp.get("typepsc", "")
             lib = pp.get("libelle", pp.get("txt", ""))
-            story.append(Paragraph(f"<b>{typep}</b> — {lib}", normal))
+            presc_rows.append((typep, lib))
+        story.append(_kv_table(presc_rows, avail_w))
 
     # ── Risques reglementaires
-    story.append(Paragraph("Risques reglementaires", h2))
+    story += [Spacer(1, 0.2 * cm), _section_header("Risques reglementaires", avail_w)]
     if risques_info:
+        risk_rows = []
         for risque in risques_info:
             lib = risque.get("libelle_risque_jo", risque.get("libelle", ""))
             if lib:
-                story.append(Paragraph(f"- {lib}", normal))
+                risk_rows.append(("Risque", lib))
+        if risk_rows:
+            story.append(_kv_table(risk_rows, avail_w))
+        else:
+            story.append(Paragraph("Aucun risque reglementaire recense.", small))
     else:
-        story.append(Paragraph("Aucun risque reglementaire recense.", small))
+        ok_tbl = Table(
+            [[Paragraph("Aucun risque reglementaire recense",
+                         ParagraphStyle("ok2", fontSize=9, textColor=GREEN_TXT, leading=12))]],
+            colWidths=[avail_w],
+        )
+        ok_tbl.setStyle(TableStyle([
+            ("BACKGROUND",    (0, 0), (-1, -1), GREEN_BG),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+            ("TOPPADDING",    (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(ok_tbl)
 
     # ── Liens utiles
-    story.append(Paragraph("Liens utiles", h2))
+    story += [Spacer(1, 0.2 * cm), _section_header("Liens utiles", avail_w)]
+    links_rows = []
     if errial_url:
-        story.append(Paragraph(
-            f'Etat des risques (ERRIAL) : <a href="{errial_url}" color="#2563eb">{errial_url}</a>',
-            small))
+        links_rows.append(("Etat des risques (ERRIAL)", errial_url))
     atlas_bbox = bbox_from_geometry(geom)
     atlas_pad = pad_bbox(atlas_bbox, 1.5)
     atlas_url = (
@@ -508,26 +614,46 @@ def make_pdf(parcel: dict, address_props: dict | None = None,
         f"?ap_theme=DOMREG&ap_bbox={atlas_pad[0]:.6f}%3B{atlas_pad[1]:.6f}"
         f"%3B{atlas_pad[2]:.6f}%3B{atlas_pad[3]:.6f}"
     )
-    story.append(Paragraph(
-        f'Atlas des Patrimoines : <a href="{atlas_url}" color="#2563eb">Voir la parcelle</a>',
-        small))
+    links_rows.append(("Atlas des Patrimoines", atlas_url))
     gpu_url = f"https://www.geoportail-urbanisme.gouv.fr/map/#tile=1&lon={clon}&lat={clat}&zoom=19"
-    story.append(Paragraph(
-        f'Geoportail de l\'Urbanisme : <a href="{gpu_url}" color="#2563eb">Carte PLU</a>',
-        small))
+    links_rows.append(("Geoportail de l'Urbanisme", gpu_url))
     geo_url = f"https://www.geoportail.gouv.fr/carte?c={clon},{clat}&z=17&permalink=yes"
-    story.append(Paragraph(
-        f'Geoportail IGN : <a href="{geo_url}" color="#2563eb">Carte IGN</a>',
-        small))
+    links_rows.append(("Geoportail IGN", geo_url))
 
-    # Footer
+    link_key_style = ParagraphStyle("lk", fontSize=9, fontName="Helvetica-Bold",
+                                     textColor=TEXT_MID, leading=11)
+    link_val_style = ParagraphStyle("lv", fontSize=7.5, textColor=ACCENT, leading=10)
+    link_data = []
+    for k, v in links_rows:
+        link_data.append([
+            Paragraph(k, link_key_style),
+            Paragraph(f'<a href="{v}" color="#2563eb">{v[:80]}{"..." if len(v) > 80 else ""}</a>', link_val_style),
+        ])
+    link_tbl = Table(link_data, colWidths=[avail_w * 0.30, avail_w * 0.70])
+    link_style_cmds = [
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING",   (0, 0), (0, -1), 10),
+        ("LEFTPADDING",   (1, 0), (1, -1), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW",     (0, 0), (-1, -2), 0.5, GREY_LINE),
+    ]
+    for i in range(len(link_data)):
+        if i % 2 == 0:
+            link_style_cmds.append(("BACKGROUND", (0, i), (-1, i), GREY_BG))
+    link_tbl.setStyle(TableStyle(link_style_cmds))
+    story.append(link_tbl)
+
+    # ── Footer
     story += [
-        Spacer(1, 0.5 * cm),
-        HRFlowable(width="100%", thickness=0.5, color=GREY_LINE, spaceAfter=4),
+        Spacer(1, 0.6 * cm),
+        HRFlowable(width="100%", thickness=1, color=BLUE, spaceAfter=6),
         Paragraph(
-            f"Document genere le {datetime.now().strftime('%d/%m/%Y a %H:%M')}  ·  "
-            "Sources : IGN / DGFiP / GPU / Georisques  ·  "
-            "Ce document n'a aucune valeur juridique",
+            f"Document genere le {datetime.now().strftime('%d/%m/%Y a %H:%M')}",
+            foot,
+        ),
+        Paragraph(
+            "Sources : IGN / DGFiP / GPU / Georisques — Ce document n'a aucune valeur juridique",
             foot,
         ),
     ]
