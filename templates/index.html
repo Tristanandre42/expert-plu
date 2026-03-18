@@ -847,14 +847,42 @@ async function doSearchByClick(lon, lat) {
   clearResults();
   setLoading(true);
   try {
-    const resp = await fetch('/api/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'coords', lon, lat }),
-    });
+    // Recherche parcelle + reverse geocoding en parallele
+    const [resp, revResp] = await Promise.all([
+      fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'coords', lon, lat }),
+      }),
+      fetch(`https://api-adresse.data.gouv.fr/reverse/?lon=${lon}&lat=${lat}&limit=1`)
+        .catch(() => null),
+    ]);
     const data = await resp.json();
     if (!resp.ok) { showError(data.error || 'Aucune parcelle.'); return; }
-    onParcelFound(data.parcel, null, data.lon, data.lat);
+
+    // Extraire l'adresse du reverse geocoding
+    let addr = null;
+    if (revResp && revResp.ok) {
+      const revData = await revResp.json();
+      const feat = (revData.features || [])[0];
+      if (feat) {
+        addr = feat.properties;
+      }
+    }
+
+    onParcelFound(data.parcel, addr, data.lon, data.lat);
+
+    // Copier l'adresse (sans CP ni commune) dans le presse-papiers
+    if (addr && addr.label) {
+      const cp = addr.postcode || '';
+      let streetAddr = addr.label;
+      if (cp && streetAddr.includes(cp)) {
+        streetAddr = streetAddr.substring(0, streetAddr.indexOf(cp)).trim();
+      }
+      if (streetAddr) {
+        copyToClipboard(streetAddr);
+      }
+    }
   } catch (e) {
     showError('Erreur reseau.');
   } finally {
