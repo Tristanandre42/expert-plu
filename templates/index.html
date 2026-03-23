@@ -14,6 +14,8 @@
   <!-- Leaflet (async loading — non-bloquant) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <!-- html2canvas for map screenshot -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1353,17 +1355,43 @@ function showOnMap(parcel) {
 /* ═══════════════════════════════════════════════════════════════════════════
    PDF DOWNLOAD
    ═══════════════════════════════════════════════════════════════════════════ */
+async function captureMapImage() {
+  const mapEl = document.getElementById('map');
+  if (!mapEl || !leafMap || typeof html2canvas === 'undefined') return null;
+  try {
+    const canvas = await html2canvas(mapEl, {
+      useCORS: true,
+      allowTaint: true,
+      scale: 2,
+      logging: false,
+    });
+    return canvas.toDataURL('image/jpeg', 0.92);
+  } catch (e) {
+    console.warn('Map capture failed:', e);
+    return null;
+  }
+}
+
 async function downloadPDF() {
   if (!currentParcel) return;
   const btn = document.getElementById('btn-pdf');
   btn.disabled = true;
-  btn.textContent = 'Generation du PDF...';
+  btn.textContent = 'Capture de la carte...';
 
   try {
+    // Capture the Leaflet map as image
+    const mapImage = await captureMapImage();
+
+    btn.textContent = 'Generation du PDF...';
+
     const resp = await fetch('/api/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parcel: currentParcel, address: currentAddr }),
+      body: JSON.stringify({
+        parcel: currentParcel,
+        address: currentAddr,
+        map_image: mapImage,
+      }),
     });
 
     if (!resp.ok) {

@@ -9,6 +9,7 @@ import io
 import re
 import sys
 import json
+import base64
 import logging
 from datetime import datetime
 
@@ -29,6 +30,7 @@ from reportlab.platypus import (
 )
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB for map image uploads
 logger.info("Flask app created successfully")
 
 # ─── API base URLs ────────────────────────────────────────────────────────────
@@ -356,7 +358,8 @@ def make_pdf(parcel: dict, address_props: dict | None = None,
              all_prescriptions: list | None = None,
              risques_info: list | None = None,
              elevation: float | None = None,
-             errial_url: str | None = None) -> io.BytesIO:
+             errial_url: str | None = None,
+             map_image_data: str | None = None) -> io.BytesIO:
     props = parcel.get("properties", {})
     geom  = parcel.get("geometry", {})
 
@@ -368,8 +371,24 @@ def make_pdf(parcel: dict, address_props: dict | None = None,
     city   = props.get("nom_com", "") or commune_name(code_insee) or code_insee
     bbox   = bbox_from_geometry(geom)
     clon, clat = centroid_from_geometry(geom)
-    padded = pad_bbox(bbox, 3.0)
-    map_buf = build_map(padded)
+
+    # Use client-captured map image if available, otherwise fallback to WMS
+    map_buf = None
+    if map_image_data:
+        try:
+            # Strip data:image/...;base64, prefix
+            if "," in map_image_data:
+                map_image_data = map_image_data.split(",", 1)[1]
+            raw = base64.b64decode(map_image_data)
+            img = PILImage.open(io.BytesIO(raw)).convert("RGB")
+            map_buf = io.BytesIO()
+            img.save(map_buf, format="JPEG", quality=92)
+            map_buf.seek(0)
+        except Exception:
+            map_buf = None
+    if map_buf is None:
+        padded = pad_bbox(bbox, 3.0)
+        map_buf = build_map(padded)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -937,9 +956,10 @@ def api_risques():
 
 @app.route("/api/pdf", methods=["POST"])
 def api_pdf():
-    body   = request.get_json(force=True)
-    parcel = body.get("parcel")
-    addr   = body.get("address")
+    body      = request.get_json(force=True)
+    parcel    = body.get("parcel")
+    addr      = body.get("address")
+    map_image = body.get("map_image")  # base64 data-URL from client
 
     if not parcel:
         return jsonify({"error": "Donnees de parcelle manquantes"}), 400
@@ -993,6 +1013,7 @@ def api_pdf():
             risques_info=risques_list,
             elevation=elevation,
             errial_url=errial_url,
+            map_image_data=map_image,
         )
         p     = parcel.get("properties", {})
         fname = f"fiche_{p.get('code_insee','')}_{p.get('section','')}_{p.get('numero','')}.pdf"
