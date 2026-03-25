@@ -18,20 +18,83 @@ logger = logging.getLogger(__name__)
 
 import requests
 from flask import Flask, render_template, request, send_file, jsonify
-from PIL import Image as PILImage
-from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import cm
-from reportlab.platypus import (
-    HRFlowable, Image, Paragraph, SimpleDocTemplate,
-    Spacer, Table, TableStyle,
-)
+
+# Lazy imports for PDF-only libraries (faster cold start)
+PILImage = None
+colors = None
+TA_CENTER = None
+A4 = None
+ParagraphStyle = None
+cm = None
+HRFlowable = None
+RLImage = None
+Paragraph = None
+SimpleDocTemplate = None
+Spacer = None
+Table = None
+TableStyle = None
+
+def _load_pdf_libs():
+    """Load ReportLab + Pillow on first PDF request only."""
+    global PILImage, colors, TA_CENTER, A4, ParagraphStyle, cm
+    global HRFlowable, RLImage, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    if PILImage is not None:
+        return
+    from PIL import Image as _PILImage
+    from reportlab.lib import colors as _colors
+    from reportlab.lib.enums import TA_CENTER as _TA_CENTER
+    from reportlab.lib.pagesizes import A4 as _A4
+    from reportlab.lib.styles import ParagraphStyle as _ParagraphStyle
+    from reportlab.lib.units import cm as _cm
+    from reportlab.platypus import (
+        HRFlowable as _HRFlowable, Image as _RLImage, Paragraph as _Paragraph,
+        SimpleDocTemplate as _SimpleDocTemplate, Spacer as _Spacer,
+        Table as _Table, TableStyle as _TableStyle,
+    )
+    PILImage = _PILImage
+    colors = _colors
+    TA_CENTER = _TA_CENTER
+    A4 = _A4
+    ParagraphStyle = _ParagraphStyle
+    cm = _cm
+    HRFlowable = _HRFlowable
+    RLImage = _RLImage
+    Paragraph = _Paragraph
+    SimpleDocTemplate = _SimpleDocTemplate
+    Spacer = _Spacer
+    Table = _Table
+    TableStyle = _TableStyle
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB for map image uploads
 logger.info("Flask app created successfully")
+
+
+@app.route("/health")
+def health():
+    return "ok", 200
+
+
+# ─── Keep-alive: ping ourselves every 10 min to prevent Render free tier sleep
+import threading, os  # noqa: E402
+
+def _keep_alive():
+    """Self-ping to prevent Render from sleeping the instance."""
+    import time
+    url = os.environ.get("RENDER_EXTERNAL_URL")
+    if not url:
+        return  # Not on Render, skip
+    url = url.rstrip("/") + "/health"
+    while True:
+        time.sleep(600)  # 10 minutes
+        try:
+            requests.get(url, timeout=10)
+        except Exception:
+            pass
+
+_keep_alive_thread = threading.Thread(target=_keep_alive, daemon=True)
+_keep_alive_thread.start()
+
 
 # ─── API base URLs ────────────────────────────────────────────────────────────
 
@@ -271,6 +334,7 @@ def wms_image(bbox: list, layers: str, width=800, height=600, transparent=True) 
 
 def build_map(bbox: list, width=800, height=600) -> io.BytesIO | None:
     """Carte 2D : fond neutre + parcelles cadastrales."""
+    _load_pdf_libs()
     parcels = wms_image(bbox, "CADASTRALPARCELS.PARCELLAIRE_EXPRESS", width, height, transparent=True)
     if not parcels:
         return None
@@ -288,19 +352,28 @@ def build_map(bbox: list, width=800, height=600) -> io.BytesIO | None:
 #  PDF GENERATION
 # ═══════════════════════════════════════════════════════════════════════════════
 
-BLUE       = colors.HexColor("#1a3a6b")
-DARK_BLUE  = colors.HexColor("#0f2847")
-LIGHT_BLUE = colors.HexColor("#e8edf8")
-ACCENT     = colors.HexColor("#2563eb")
-GREY_LINE  = colors.HexColor("#d1d5db")
-GREY_BG    = colors.HexColor("#f8f9fa")
-TEXT_DARK   = colors.HexColor("#1f2937")
-TEXT_MID    = colors.HexColor("#4b5563")
-TEXT_LIGHT  = colors.HexColor("#6b7280")
-GREEN_BG   = colors.HexColor("#ecfdf5")
-GREEN_TXT  = colors.HexColor("#065f46")
-RED_BG     = colors.HexColor("#fef2f2")
-RED_TXT    = colors.HexColor("#991b1b")
+# Color constants — initialized lazily with _load_pdf_libs()
+BLUE = DARK_BLUE = LIGHT_BLUE = ACCENT = GREY_LINE = GREY_BG = None
+TEXT_DARK = TEXT_MID = TEXT_LIGHT = GREEN_BG = GREEN_TXT = RED_BG = RED_TXT = None
+
+def _init_colors():
+    global BLUE, DARK_BLUE, LIGHT_BLUE, ACCENT, GREY_LINE, GREY_BG
+    global TEXT_DARK, TEXT_MID, TEXT_LIGHT, GREEN_BG, GREEN_TXT, RED_BG, RED_TXT
+    if BLUE is not None:
+        return
+    BLUE       = colors.HexColor("#1a3a6b")
+    DARK_BLUE  = colors.HexColor("#0f2847")
+    LIGHT_BLUE = colors.HexColor("#e8edf8")
+    ACCENT     = colors.HexColor("#2563eb")
+    GREY_LINE  = colors.HexColor("#d1d5db")
+    GREY_BG    = colors.HexColor("#f8f9fa")
+    TEXT_DARK   = colors.HexColor("#1f2937")
+    TEXT_MID    = colors.HexColor("#4b5563")
+    TEXT_LIGHT  = colors.HexColor("#6b7280")
+    GREEN_BG   = colors.HexColor("#ecfdf5")
+    GREEN_TXT  = colors.HexColor("#065f46")
+    RED_BG     = colors.HexColor("#fef2f2")
+    RED_TXT    = colors.HexColor("#991b1b")
 
 
 def _section_header(title: str, avail_w: float) -> Table:
@@ -351,7 +424,7 @@ def _kv_table(rows: list[tuple[str, str]], avail_w: float) -> Table:
     return tbl
 
 
-def make_pdf(parcel: dict, address_props: dict | None = None,
+def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
              zonage_info: list | None = None,
              plu_docs: list | None = None,
              patrimoine_info: list | None = None,
@@ -360,6 +433,8 @@ def make_pdf(parcel: dict, address_props: dict | None = None,
              elevation: float | None = None,
              errial_url: str | None = None,
              map_image_data: str | None = None) -> io.BytesIO:
+    _load_pdf_libs()
+    _init_colors()
     props = parcel.get("properties", {})
     geom  = parcel.get("geometry", {})
 
@@ -495,7 +570,7 @@ def make_pdf(parcel: dict, address_props: dict | None = None,
         img_h = min(avail_w * 0.6, 11 * cm)
         # Cadre autour de la carte
         map_tbl = Table(
-            [[Image(map_buf, width=avail_w - 4, height=img_h)]],
+            [[RLImage(map_buf, width=avail_w - 4, height=img_h)]],
             colWidths=[avail_w],
         )
         map_tbl.setStyle(TableStyle([
