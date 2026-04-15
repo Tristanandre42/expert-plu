@@ -9,6 +9,7 @@ import io
 import re
 import sys
 import json
+import math
 import base64
 import logging
 from datetime import datetime
@@ -314,12 +315,24 @@ def pad_bbox(bbox: list, factor: float = 3.0) -> list:
 #  WMS MAP IMAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def wms_image(bbox: list, layers: str, width=800, height=600, transparent=True) -> bytes | None:
+def _to_merc(lon: float, lat: float) -> tuple[float, float]:
+    """WGS84 (degrés) → Web Mercator EPSG:3857 (mètres)."""
+    R = 6_378_137.0
+    x = R * math.radians(lon)
+    y = R * math.log(math.tan(math.pi / 4.0 + math.radians(lat) / 2.0))
+    return x, y
+
+
+def wms_image(bbox_wgs84: list, layers: str, width=800, height=600, transparent=True) -> bytes | None:
+    """Image WMS en EPSG:3857 — axe Est,Nord, pas d'ambiguïté sur l'ordre lat/lon."""
     fmt = "image/png" if transparent else "image/jpeg"
+    # Convertir bbox WGS84 [minlon,minlat,maxlon,maxlat] en Mercator
+    xmin, ymin = _to_merc(bbox_wgs84[0], bbox_wgs84[1])
+    xmax, ymax = _to_merc(bbox_wgs84[2], bbox_wgs84[3])
     params = {
         "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap",
-        "LAYERS": layers, "STYLES": "", "CRS": "EPSG:4326",
-        "BBOX": f"{bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]}",
+        "LAYERS": layers, "STYLES": "", "CRS": "EPSG:3857",
+        "BBOX": f"{xmin},{ymin},{xmax},{ymax}",  # EPSG:3857 : Est,Nord → aucun swap
         "WIDTH": width, "HEIGHT": height, "FORMAT": fmt,
     }
     try:
@@ -332,18 +345,22 @@ def wms_image(bbox: list, layers: str, width=800, height=600, transparent=True) 
     return None
 
 
-def draw_parcel_outline(img, geom: dict, bbox: list):
-    """Dessine le contour rouge de la parcelle sur l'image PIL."""
+def draw_parcel_outline(img, geom: dict, bbox_wgs84: list):
+    """Dessine le contour rouge de la parcelle (projection Mercator — cohérente avec le WMS)."""
     from PIL import ImageDraw
     w, h = img.size
-    minlon, minlat, maxlon, maxlat = bbox
-    dlon = maxlon - minlon or 1e-9
-    dlat = maxlat - minlat or 1e-9
+
+    # Bbox en Mercator (même projection que le WMS)
+    xmin, ymin = _to_merc(bbox_wgs84[0], bbox_wgs84[1])
+    xmax, ymax = _to_merc(bbox_wgs84[2], bbox_wgs84[3])
+    dx = xmax - xmin or 1e-9
+    dy = ymax - ymin or 1e-9
 
     def to_px(lon, lat):
+        x, y = _to_merc(lon, lat)
         return (
-            (lon - minlon) / dlon * w,
-            h - (lat - minlat) / dlat * h,
+            (x - xmin) / dx * w,           # ouest→est = gauche→droite
+            h - (y - ymin) / dy * h,        # nord→sud  = haut→bas (y image inversé)
         )
 
     rgba    = img.convert("RGBA")
@@ -352,8 +369,8 @@ def draw_parcel_outline(img, geom: dict, bbox: list):
 
     def draw_ring(coords):
         pts = [to_px(c[0], c[1]) for c in coords]
-        draw.polygon(pts, fill=(220, 38, 38, 55))           # remplissage rouge translucide
-        draw.line(pts + [pts[0]], fill=(220, 38, 38, 255), width=4)  # contour rouge plein
+        draw.polygon(pts, fill=(220, 38, 38, 55))
+        draw.line(pts + [pts[0]], fill=(220, 38, 38, 255), width=4)
 
     if geom.get("type") == "Polygon":
         draw_ring(geom["coordinates"][0])
@@ -370,11 +387,9 @@ def build_map(bbox: list, geom: dict | None = None, width=800, height=600) -> io
     parcels = wms_image(bbox, "CADASTRALPARCELS.PARCELLAIRE_EXPRESS", width, height, transparent=True)
     if not parcels:
         return None
-    # Fond blanc + overlay cadastral = carte 2D propre
     base = PILImage.new("RGBA", (width, height), (255, 255, 255, 255))
     overlay = PILImage.open(io.BytesIO(parcels)).convert("RGBA")
     combined = PILImage.alpha_composite(base, overlay).convert("RGB")
-    # Dessiner le contour de la parcelle selectionnee
     if geom:
         combined = draw_parcel_outline(combined, geom, bbox)
     buf = io.BytesIO()
