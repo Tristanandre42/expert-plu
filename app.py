@@ -9,7 +9,6 @@ import io
 import re
 import sys
 import json
-import math
 import base64
 import logging
 from datetime import datetime
@@ -315,24 +314,12 @@ def pad_bbox(bbox: list, factor: float = 3.0) -> list:
 #  WMS MAP IMAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _to_merc(lon: float, lat: float) -> tuple[float, float]:
-    """WGS84 (degrés) → Web Mercator EPSG:3857 (mètres)."""
-    R = 6_378_137.0
-    x = R * math.radians(lon)
-    y = R * math.log(math.tan(math.pi / 4.0 + math.radians(lat) / 2.0))
-    return x, y
-
-
-def wms_image(bbox_wgs84: list, layers: str, width=800, height=600, transparent=True) -> bytes | None:
-    """Image WMS en EPSG:3857 — axe Est,Nord, pas d'ambiguïté sur l'ordre lat/lon."""
+def wms_image(bbox: list, layers: str, width=800, height=600, transparent=True) -> bytes | None:
     fmt = "image/png" if transparent else "image/jpeg"
-    # Convertir bbox WGS84 [minlon,minlat,maxlon,maxlat] en Mercator
-    xmin, ymin = _to_merc(bbox_wgs84[0], bbox_wgs84[1])
-    xmax, ymax = _to_merc(bbox_wgs84[2], bbox_wgs84[3])
     params = {
         "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap",
-        "LAYERS": layers, "STYLES": "", "CRS": "EPSG:3857",
-        "BBOX": f"{xmin},{ymin},{xmax},{ymax}",  # EPSG:3857 : Est,Nord → aucun swap
+        "LAYERS": layers, "STYLES": "", "CRS": "EPSG:4326",
+        "BBOX": f"{bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]}",
         "WIDTH": width, "HEIGHT": height, "FORMAT": fmt,
     }
     try:
@@ -345,53 +332,16 @@ def wms_image(bbox_wgs84: list, layers: str, width=800, height=600, transparent=
     return None
 
 
-def draw_parcel_outline(img, geom: dict, bbox_wgs84: list):
-    """Dessine le contour rouge de la parcelle (projection Mercator — cohérente avec le WMS)."""
-    from PIL import ImageDraw
-    w, h = img.size
-
-    # Bbox en Mercator (même projection que le WMS)
-    xmin, ymin = _to_merc(bbox_wgs84[0], bbox_wgs84[1])
-    xmax, ymax = _to_merc(bbox_wgs84[2], bbox_wgs84[3])
-    dx = xmax - xmin or 1e-9
-    dy = ymax - ymin or 1e-9
-
-    def to_px(lon, lat):
-        x, y = _to_merc(lon, lat)
-        return (
-            (x - xmin) / dx * w,           # ouest→est = gauche→droite
-            h - (y - ymin) / dy * h,        # nord→sud  = haut→bas (y image inversé)
-        )
-
-    rgba    = img.convert("RGBA")
-    overlay = PILImage.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw    = ImageDraw.Draw(overlay)
-
-    def draw_ring(coords):
-        pts = [to_px(c[0], c[1]) for c in coords]
-        draw.polygon(pts, fill=(220, 38, 38, 55))
-        draw.line(pts + [pts[0]], fill=(220, 38, 38, 255), width=4)
-
-    if geom.get("type") == "Polygon":
-        draw_ring(geom["coordinates"][0])
-    elif geom.get("type") == "MultiPolygon":
-        for poly in geom["coordinates"]:
-            draw_ring(poly[0])
-
-    return PILImage.alpha_composite(rgba, overlay).convert("RGB")
-
-
-def build_map(bbox: list, geom: dict | None = None, width=800, height=600) -> io.BytesIO | None:
-    """Carte 2D : fond neutre + parcelles cadastrales + contour rouge de la parcelle."""
+def build_map(bbox: list, width=800, height=600) -> io.BytesIO | None:
+    """Carte 2D : fond neutre + parcelles cadastrales."""
     _load_pdf_libs()
     parcels = wms_image(bbox, "CADASTRALPARCELS.PARCELLAIRE_EXPRESS", width, height, transparent=True)
     if not parcels:
         return None
+    # Fond blanc + overlay cadastral = carte 2D propre
     base = PILImage.new("RGBA", (width, height), (255, 255, 255, 255))
     overlay = PILImage.open(io.BytesIO(parcels)).convert("RGBA")
     combined = PILImage.alpha_composite(base, overlay).convert("RGB")
-    if geom:
-        combined = draw_parcel_outline(combined, geom, bbox)
     buf = io.BytesIO()
     combined.save(buf, format="JPEG", quality=95)
     buf.seek(0)
@@ -481,7 +431,8 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
              all_prescriptions: list | None = None,
              risques_info: list | None = None,
              elevation: float | None = None,
-             errial_url: str | None = None) -> io.BytesIO:
+             errial_url: str | None = None,
+             map_image_data: str | None = None) -> io.BytesIO:
     _load_pdf_libs()
     _init_colors()
     props = parcel.get("properties", {})
@@ -496,9 +447,23 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
     bbox   = bbox_from_geometry(geom)
     clon, clat = centroid_from_geometry(geom)
 
-    # Carte toujours générée côté serveur : contour rouge précis sur la parcelle
-    padded  = pad_bbox(bbox, 2.5)
-    map_buf = build_map(padded, geom=geom)
+    # Use client-captured map image if available, otherwise fallback to WMS
+    map_buf = None
+    if map_image_data:
+        try:
+            # Strip data:image/...;base64, prefix
+            if "," in map_image_data:
+                map_image_data = map_image_data.split(",", 1)[1]
+            raw = base64.b64decode(map_image_data)
+            img = PILImage.open(io.BytesIO(raw)).convert("RGB")
+            map_buf = io.BytesIO()
+            img.save(map_buf, format="JPEG", quality=92)
+            map_buf.seek(0)
+        except Exception:
+            map_buf = None
+    if map_buf is None:
+        padded = pad_bbox(bbox, 3.0)
+        map_buf = build_map(padded)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -1067,8 +1032,9 @@ def api_risques():
 @app.route("/api/pdf", methods=["POST"])
 def api_pdf():
     body      = request.get_json(force=True)
-    parcel = body.get("parcel")
-    addr   = body.get("address")
+    parcel    = body.get("parcel")
+    addr      = body.get("address")
+    map_image = body.get("map_image")  # base64 data-URL from client
 
     if not parcel:
         return jsonify({"error": "Donnees de parcelle manquantes"}), 400
@@ -1111,16 +1077,7 @@ def api_pdf():
         except Exception:
             pass
 
-        # Lien rapport Géorisques (fonctionne directement avec lon/lat + adresse)
-        _city   = (addr or {}).get("city", "")
-        _zip    = (addr or {}).get("postcode", "")
-        _street = (addr or {}).get("label", "").split(",")[0].strip() if addr else ""
-        from urllib.parse import quote as _q
-        errial_url = (
-            f"https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi"
-            f"/rapport2?lon={clon}&lat={clat}"
-            f"&city={_q(_city)}&zipcode={_q(_zip)}&address={_q(_street)}"
-        )
+        errial_url = f"https://errial.georisques.gouv.fr/#/?lon={clon}&lat={clat}"
 
         pdf = make_pdf(
             parcel, addr,
@@ -1131,6 +1088,7 @@ def api_pdf():
             risques_info=risques_list,
             elevation=elevation,
             errial_url=errial_url,
+            map_image_data=map_image,
         )
         p     = parcel.get("properties", {})
         fname = f"fiche_{p.get('code_insee','')}_{p.get('section','')}_{p.get('numero','')}.pdf"

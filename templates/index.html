@@ -1233,22 +1233,14 @@ async function loadRisques(lon, lat, code_insee) {
       </div>`;
     }
 
-    // Liens ERRIAL et Georisques — URLs construites côté client avec données adresse
-    const _city    = encodeURIComponent(currentAddr?.city     || '');
-    const _zip     = encodeURIComponent(currentAddr?.postcode || '');
-    const _street  = encodeURIComponent(currentAddr?.label ? currentAddr.label.split(',')[0].trim() : '');
-    const georisquesRapportUrl = `https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi/rapport2?lon=${lon}&lat=${lat}&city=${_city}&zipcode=${_zip}&address=${_street}`;
-    const errialUrl = `https://errial.georisques.gouv.fr/#/?lon=${lon}&lat=${lat}`;
-
-    html += `<div class="download-row" style="margin-top:.5rem;gap:.5rem;flex-wrap:wrap;">
-      <a class="link-btn" href="${georisquesRapportUrl}" target="_blank" rel="noopener"
-         style="background:var(--red);color:#fff;">
-        &#128196; Rapport des risques
-      </a>
-      <a class="link-btn" href="${errialUrl}" target="_blank" rel="noopener">
+    // Liens ERRIAL et Georisques
+    html += '<div class="download-row" style="margin-top:.5rem;">';
+    if (data.errial_url) {
+      html += `<a class="link-btn" href="${esc(data.errial_url)}" target="_blank" rel="noopener">
         Etat des risques (ERRIAL)
-      </a>
-    </div>`;
+      </a>`;
+    }
+    html += '</div>';
 
     body.innerHTML = html;
   } catch (e) {
@@ -1483,15 +1475,21 @@ async function downloadPDF() {
   if (!currentParcel) return;
   const btn = document.getElementById('btn-pdf');
   btn.disabled = true;
-  btn.textContent = 'Generation du PDF...';
+  btn.textContent = 'Capture de la carte...';
 
   try {
+    // Capture the Leaflet map as image
+    const mapImage = await captureMapImage();
+
+    btn.textContent = 'Generation du PDF...';
+
     const resp = await fetch('/api/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         parcel: currentParcel,
         address: currentAddr,
+        map_image: mapImage,
       }),
     });
 
