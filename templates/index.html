@@ -3,12 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Expert PLU — Analyse parcellaire</title>
-  <!-- PWA -->
-  <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#1a3a6b">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>CAdastre — Analyse parcellaire</title>
 
   <!-- DNS prefetch for faster CDN resolution -->
   <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
@@ -294,124 +289,7 @@
     }
     .link-btn:hover { background: #0f2548; }
 
-    /* ── History panel ── */
-    .history-panel {
-      background: #f8faff;
-      border: 1px solid #dde3f0;
-      border-radius: 8px;
-      padding: .5rem .8rem;
-      margin-bottom: .6rem;
-      font-size: .76rem;
-    }
-    .history-panel h4 {
-      font-size: .72rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      margin: 0 0 .3rem;
-      font-weight: 700;
-    }
-    .history-item {
-      display: flex;
-      align-items: center;
-      gap: .4rem;
-      padding: .2rem 0;
-      cursor: pointer;
-      color: var(--blue);
-      font-size: .78rem;
-      border-radius: 4px;
-    }
-    .history-item:hover { color: #0f2548; text-decoration: underline; }
-    .history-item .h-ref { font-weight: 600; font-family: monospace; }
-    .history-item .h-addr { color: var(--muted); font-size: .72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-    /* ── WMS overlay panel ── */
-    .overlay-panel {
-      background: #fff;
-      border-radius: 6px;
-      box-shadow: 0 1px 5px rgba(0,0,0,.15);
-      padding: .3rem .5rem;
-      min-width: 140px;
-    }
-    .overlay-row {
-      display: flex;
-      align-items: center;
-      gap: .4rem;
-      font-size: .73rem;
-      font-weight: 600;
-      color: var(--blue);
-      padding: .18rem 0;
-      cursor: pointer;
-      user-select: none;
-    }
-    .overlay-row input[type=checkbox] { accent-color: var(--blue); cursor: pointer; }
-
-    /* ── Measure tool ── */
-    .measure-badge {
-      background: rgba(26,58,107,.92);
-      color: #fff;
-      border-radius: 5px;
-      padding: .2rem .5rem;
-      font-size: .73rem;
-      font-weight: 600;
-      pointer-events: none;
-    }
-    .btn-map-tool {
-      background: #fff;
-      border: none;
-      cursor: pointer;
-      padding: .38rem .65rem;
-      font-size: .73rem;
-      font-weight: 600;
-      color: var(--blue);
-      font-family: inherit;
-      border-radius: 6px;
-      box-shadow: 0 1px 5px rgba(0,0,0,.15);
-      transition: background .15s;
-      white-space: nowrap;
-    }
-    .btn-map-tool:hover { background: #f3f4f6; }
-    .btn-map-tool.active { background: var(--blue); color: #fff; }
-
-    /* ── Comparison modal ── */
-    .compare-overlay {
-      display: none;
-      position: fixed; inset: 0;
-      background: rgba(0,0,0,.45);
-      z-index: 9999;
-      align-items: center;
-      justify-content: center;
-    }
-    .compare-overlay.open { display: flex; }
-    .compare-box {
-      background: #fff;
-      border-radius: 12px;
-      padding: 1.2rem;
-      max-width: 700px;
-      width: 95%;
-      max-height: 85vh;
-      overflow-y: auto;
-      box-shadow: 0 8px 32px rgba(0,0,0,.2);
-    }
-    .compare-box h3 {
-      font-size: 1rem;
-      color: var(--blue);
-      margin: 0 0 .8rem;
-      font-weight: 700;
-    }
-    .compare-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-    .compare-table th {
-      background: var(--blue);
-      color: #fff;
-      padding: .5rem .7rem;
-      text-align: left;
-      font-weight: 600;
-    }
-    .compare-table td { padding: .4rem .7rem; border-bottom: 1px solid #e5e7eb; }
-    .compare-table tr:nth-child(even) td { background: #f8f9fa; }
-    .compare-table .label-col { color: var(--muted); font-weight: 600; font-size: .76rem; }
-
-    /* ── Map layer toggle (plan/satellite) ── */
+    /* Map layer toggle (plan/satellite) */
     .layer-toggle {
       display: flex;
       background: #fff;
@@ -527,12 +405,6 @@
 
   <!-- ══ SIDEBAR ══ -->
   <div class="sidebar">
-
-    <!-- History panel -->
-    <div id="history-panel" class="history-panel" style="display:none;">
-      <h4>&#128338; Dernières parcelles consultées</h4>
-      <div id="history-list"></div>
-    </div>
 
     <!-- Search section -->
     <div class="search-section">
@@ -662,57 +534,14 @@
         <div class="info-body open" id="body-sem"></div>
       </div>
 
-      <!-- 6. DVF — Prix du marché -->
-      <div class="info-section" id="sec-dvf">
-        <div class="info-header open" onclick="toggleSection('dvf')">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-          </svg>
-          Prix du marche (DVF)
-          <span class="arrow">&#9654;</span>
-        </div>
-        <div class="info-body open" id="body-dvf"></div>
-      </div>
-
-      <!-- PDF Download + actions -->
+      <!-- PDF Download -->
       <div style="padding: .8rem 1.2rem;">
-        <div class="download-row" style="flex-wrap:wrap; gap:.5rem;">
+        <div class="download-row">
           <button class="download-btn" id="btn-pdf" onclick="downloadPDF()">
             Telecharger la fiche PDF
           </button>
-          <button class="download-btn" onclick="printMap()"
-            style="background:var(--blue);">
-            Imprimer la carte
-          </button>
-          <button class="download-btn" onclick="openCompareModal()"
-            style="background:#6b7280;">
-            Comparer une parcelle
-          </button>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- ══ COMPARISON MODAL ══ -->
-  <div class="compare-overlay" id="compare-overlay" onclick="closeCompareModal(event)">
-    <div class="compare-box" onclick="event.stopPropagation()">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.8rem;">
-        <h3>Comparaison de parcelles</h3>
-        <button onclick="closeCompareModal()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:#6b7280;">✕</button>
-      </div>
-      <div id="compare-search-area" style="margin-bottom:.8rem;">
-        <label style="font-size:.8rem;font-weight:600;color:#374151;">Adresse de la parcelle B :</label>
-        <div style="display:flex;gap:.5rem;margin-top:.3rem;">
-          <input id="compare-input" type="text" placeholder="Ex: 15 rue Victor Hugo 42000 Saint-Etienne"
-            style="flex:1;padding:.45rem .7rem;border:1.5px solid #d1d5db;border-radius:7px;font-size:.83rem;font-family:inherit;"
-            oninput="onCompareInput(this.value)">
-          <button onclick="doCompareSearch()" class="download-btn" style="margin:0;padding:.45rem .9rem;">
-            Rechercher
-          </button>
-        </div>
-        <div id="compare-ac" style="border:1px solid #e5e7eb;border-radius:6px;background:#fff;display:none;max-height:160px;overflow-y:auto;margin-top:2px;box-shadow:0 4px 16px rgba(0,0,0,.1);"></div>
-      </div>
-      <div id="compare-result"></div>
     </div>
   </div>
 
@@ -735,21 +564,6 @@
 
     <!-- Map hint -->
     <div class="map-hint" id="map-hint">Cliquez sur la carte pour selectionner une parcelle</div>
-
-    <!-- Map bottom toolbar -->
-    <div id="map-toolbar" style="position:absolute;bottom:.6rem;left:.6rem;z-index:1000;display:flex;gap:.4rem;flex-wrap:wrap;">
-      <button class="btn-map-tool" id="btn-measure" onclick="toggleMeasure()" title="Mesurer une distance">
-        📏 Mesurer
-      </button>
-      <button class="btn-map-tool" id="btn-voisines" onclick="toggleVoisines()" title="Afficher les parcelles voisines">
-        🗺 Voisines
-      </button>
-    </div>
-
-    <!-- Measure info -->
-    <div id="measure-info" style="position:absolute;top:3.2rem;left:50%;transform:translateX(-50%);z-index:1000;display:none;">
-      <span class="measure-badge" id="measure-text">Cliquez pour placer le point de depart</span>
-    </div>
   </div>
 
 </div>
@@ -765,20 +579,10 @@ let currentLon    = null;
 let currentLat    = null;
 let leafMap       = null;
 let geojsonLayer  = null;
-let voisinesLayer = null;
-let measureActive = false;
-let measurePoints = [];
-let measureMarkers = [];
-let measureLine   = null;
-let voisinesActive = false;
-let compareParcelB = null;
 let acTimer       = null;
 let acIndex       = -1;
 let acItems       = [];
 let mapInitialized = false;
-
-/* ── Keep-alive (ping Render toutes les 14 min) ── */
-setInterval(() => fetch('/api/ping').catch(() => {}), 14 * 60 * 1000);
 
 /* ═══════════════════════════════════════════════════════════════════════════
    TAB SWITCHING
@@ -1139,25 +943,25 @@ function onParcelFound(parcel, addr, lon, lat) {
   // 2. Show on map
   showOnMap(parcel);
 
-  // 3. Sauvegarde historique
-  saveToHistory(parcel, addr);
-
-  // 4. Chargement parallele de toutes les donnees
+  // 3. Load extra data in parallel
   const code_insee = parcel.properties?.code_insee || '';
 
+  // Set loading state for all sections
   document.getElementById('body-urbanisme').innerHTML = loadingHTML();
   document.getElementById('body-patrimoine').innerHTML = loadingHTML();
   document.getElementById('body-risques').innerHTML = loadingHTML();
-  document.getElementById('body-dvf').innerHTML = loadingHTML();
 
-  // Lancer tout en parallele (Promise.all invisible — chaque fn gere son propre DOM)
-  Promise.all([
-    loadElevation(lon, lat),
-    loadUrbanisme(lon, lat),
-    loadPatrimoine(lon, lat),
-    loadRisques(lon, lat, code_insee),
-    loadDVF(lon, lat),
-  ]);
+  // Load GPS + altitude
+  loadElevation(lon, lat);
+
+  // Load urbanisme
+  loadUrbanisme(lon, lat);
+
+  // Load patrimoine
+  loadPatrimoine(lon, lat);
+
+  // Load risques
+  loadRisques(lon, lat, code_insee);
 
   // Saint-Etienne Metropole
   loadSEM(code_insee);
@@ -1590,18 +1394,11 @@ function initMap() {
   document.getElementById('btn-layer-plan').addEventListener('click', () => setBaseLayer('plan'));
   document.getElementById('btn-layer-sat').addEventListener('click', () => setBaseLayer('satellite'));
 
-  // Click handler (mesure ou selection parcelle)
+  // Click handler for parcel selection
   leafMap.on('click', function(e) {
     const { lat, lng } = e.latlng;
-    if (measureActive) {
-      handleMeasureClick(lat, lng);
-    } else {
-      doSearchByClick(lng, lat);
-    }
+    doSearchByClick(lng, lat);
   });
-
-  // Overlay layers control
-  addOverlayControl();
 
   // Show hint
   const hint = document.getElementById('map-hint');
@@ -1741,401 +1538,7 @@ if (document.readyState === 'complete') {
 // Close autocomplete on outside click
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.input-wrap')) { closeAC(); closeCommuneAC(); }
-  if (!e.target.closest('#compare-ac') && !e.target.closest('#compare-input')) {
-    document.getElementById('compare-ac').style.display = 'none';
-  }
 });
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   HISTORIQUE (localStorage)
-   ═══════════════════════════════════════════════════════════════════════════ */
-function saveToHistory(parcel, addr) {
-  const p = parcel.properties;
-  const entry = {
-    ref: `${p.code_insee} ${p.section} ${p.numero}`,
-    addr: addr?.label || p.nom_com || '',
-    geom: parcel.geometry,
-    parcel: parcel,
-    addr_obj: addr,
-    ts: Date.now(),
-  };
-  let history = getHistory();
-  // Eviter les doublons
-  history = history.filter(h => h.ref !== entry.ref);
-  history.unshift(entry);
-  if (history.length > 8) history = history.slice(0, 8);
-  try { localStorage.setItem('expert_plu_history', JSON.stringify(history)); } catch(e) {}
-  renderHistory();
-}
-
-function getHistory() {
-  try {
-    return JSON.parse(localStorage.getItem('expert_plu_history') || '[]');
-  } catch(e) { return []; }
-}
-
-function renderHistory() {
-  const history = getHistory();
-  const panel = document.getElementById('history-panel');
-  const list  = document.getElementById('history-list');
-  if (!history.length) { panel.style.display = 'none'; return; }
-  panel.style.display = 'block';
-  list.innerHTML = history.map((h, i) => `
-    <div class="history-item" onclick="restoreFromHistory(${i})">
-      <span class="h-ref">${esc(h.ref)}</span>
-      <span class="h-addr">${esc(h.addr)}</span>
-    </div>`).join('');
-}
-
-function restoreFromHistory(i) {
-  const h = getHistory()[i];
-  if (!h) return;
-  // Calculer centroide
-  const lons = [], lats = [];
-  function walk(c) {
-    if (typeof c[0] === 'number') { lons.push(c[0]); lats.push(c[1]); }
-    else { for (const s of c) walk(s); }
-  }
-  walk(h.geom.coordinates);
-  const lon = (Math.min(...lons) + Math.max(...lons)) / 2;
-  const lat = (Math.min(...lats) + Math.max(...lats)) / 2;
-  onParcelFound(h.parcel, h.addr_obj, lon, lat);
-}
-
-// Afficher l'historique au chargement
-renderHistory();
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   DVF — PRIX DU MARCHE
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function loadDVF(lon, lat) {
-  const body = document.getElementById('body-dvf');
-  try {
-    const resp = await fetch(`/api/dvf?lat=${lat}&lon=${lon}`);
-    const data = await resp.json();
-    const mutations = data.mutations || [];
-    if (!mutations.length) {
-      body.innerHTML = '<div class="empty-msg">Aucune transaction recensee dans un rayon de 300 m.</div>';
-      return;
-    }
-    let html = '';
-    for (const m of mutations) {
-      const date = m.date ? m.date.substring(0,10) : '—';
-      const valeur = m.valeur ? `${parseInt(m.valeur).toLocaleString('fr-FR')} €` : '—';
-      const surf_b = m.surface_bati ? `${m.surface_bati} m² bat.` : '';
-      const surf_t = m.surface_terrain ? `${m.surface_terrain} m² terrain` : '';
-      const surf = [surf_b, surf_t].filter(Boolean).join(' / ') || '—';
-      const pieces = m.pieces ? `${m.pieces} pce(s)` : '';
-      html += `<div class="info-row">
-        <span class="k">${esc(date)}</span>
-        <span class="v"><b>${esc(valeur)}</b> · ${esc(m.type || '?')} · ${esc(surf)} ${esc(pieces)}</span>
-      </div>`;
-    }
-    body.innerHTML = html;
-  } catch(e) {
-    body.innerHTML = '<div class="empty-msg">Donnees DVF indisponibles.</div>';
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   PARCELLES VOISINES
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function toggleVoisines() {
-  if (!currentParcel) return;
-  const btn = document.getElementById('btn-voisines');
-  if (voisinesActive) {
-    if (voisinesLayer) { voisinesLayer.remove(); voisinesLayer = null; }
-    voisinesActive = false;
-    btn.classList.remove('active');
-    return;
-  }
-  btn.classList.add('active');
-  voisinesActive = true;
-  const p = currentParcel.properties;
-  try {
-    const resp = await fetch(`/api/voisines?code_insee=${p.code_insee}&section=${p.section}`);
-    const data = await resp.json();
-    const feats = data.features || [];
-    voisinesLayer = L.geoJSON({ type: 'FeatureCollection', features: feats }, {
-      style: f => ({
-        color: f.properties?.numero === p.numero ? '#dc2626' : '#f59e0b',
-        weight: 2,
-        fillOpacity: 0.08,
-        fillColor: '#f59e0b',
-      }),
-      onEachFeature: (f, layer) => {
-        const n = f.properties?.numero || '';
-        layer.bindTooltip(n, { permanent: false, className: 'leaflet-tooltip' });
-        layer.on('click', () => {
-          if (f.properties?.numero !== p.numero) {
-            const coords = f.geometry?.coordinates;
-            if (coords) {
-              const lons2 = [], lats2 = [];
-              function walkC(c) { if (typeof c[0]==='number'){lons2.push(c[0]);lats2.push(c[1]);}else{for(const s of c)walkC(s);} }
-              walkC(coords);
-              const clon = (Math.min(...lons2)+Math.max(...lons2))/2;
-              const clat = (Math.min(...lats2)+Math.max(...lats2))/2;
-              onParcelFound(f, null, clon, clat);
-            }
-          }
-        });
-      }
-    }).addTo(leafMap);
-  } catch(e) {
-    btn.classList.remove('active');
-    voisinesActive = false;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   OUTIL DE MESURE
-   ═══════════════════════════════════════════════════════════════════════════ */
-function toggleMeasure() {
-  measureActive = !measureActive;
-  const btn  = document.getElementById('btn-measure');
-  const info = document.getElementById('measure-info');
-  const text = document.getElementById('measure-text');
-  btn.classList.toggle('active', measureActive);
-  if (!measureActive) {
-    // Nettoyer
-    measurePoints = [];
-    measureMarkers.forEach(m => m.remove());
-    measureMarkers = [];
-    if (measureLine) { measureLine.remove(); measureLine = null; }
-    info.style.display = 'none';
-    if (leafMap) leafMap.getContainer().style.cursor = '';
-  } else {
-    info.style.display = 'block';
-    text.textContent = 'Cliquez pour placer le point de depart';
-    if (leafMap) leafMap.getContainer().style.cursor = 'crosshair';
-  }
-}
-
-function handleMeasureClick(lat, lng) {
-  measurePoints.push([lat, lng]);
-  const dot = L.circleMarker([lat, lng], {
-    radius: 5, color: '#1a3a6b', fillColor: '#fff', fillOpacity: 1, weight: 2
-  }).addTo(leafMap);
-  measureMarkers.push(dot);
-
-  if (measurePoints.length === 1) {
-    document.getElementById('measure-text').textContent = 'Cliquez pour placer le point d\'arrivee';
-  } else {
-    // Calculer distance (Haversine)
-    const [lat1, lon1] = measurePoints[0];
-    const [lat2, lon2] = measurePoints[measurePoints.length - 1];
-    const R = 6371000;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-    const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    if (measureLine) measureLine.remove();
-    measureLine = L.polyline(measurePoints, {
-      color: '#1a3a6b', weight: 2.5, dashArray: '6,4'
-    }).addTo(leafMap);
-
-    const distStr = dist < 1000
-      ? `${Math.round(dist)} m`
-      : `${(dist/1000).toFixed(2)} km`;
-    document.getElementById('measure-text').textContent = `Distance : ${distStr} — Cliquez pour continuer ou 🔄 Mesurer pour reinitialiser`;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   IMPRESSION CARTE
-   ═══════════════════════════════════════════════════════════════════════════ */
-async function printMap() {
-  if (!leafMap) return;
-  try {
-    const canvas = await html2canvas(document.getElementById('map'), {
-      useCORS: true, allowTaint: true, scale: 2, logging: false,
-    });
-    const win = window.open('', '_blank');
-    const p = currentParcel?.properties || {};
-    const ref = `${p.code_insee || ''} ${p.section || ''} ${p.numero || ''}`;
-    const addr = currentAddr?.label || '';
-    win.document.write(`
-      <html><head><title>Carte — ${ref}</title>
-      <style>body{margin:0;font-family:sans-serif;}
-      .header{padding:12px 16px;background:#1a3a6b;color:#fff;font-size:14px;font-weight:600;}
-      img{width:100%;display:block;}
-      .footer{padding:8px 16px;font-size:11px;color:#666;text-align:center;}
-      @media print{.no-print{display:none;}}
-      </style></head><body>
-      <div class="header">${ref} — ${addr}</div>
-      <img src="${canvas.toDataURL('image/jpeg',0.95)}">
-      <div class="footer">Source : IGN Geoplateforme / DGFiP — Donnees indicatives</div>
-      <div class="no-print" style="text-align:center;padding:8px;">
-        <button onclick="window.print()" style="padding:8px 20px;background:#1a3a6b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;">Imprimer</button>
-      </div>
-      </body></html>`);
-    win.document.close();
-  } catch(e) { alert('Erreur impression'); }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   COMPARAISON DE PARCELLES
-   ═══════════════════════════════════════════════════════════════════════════ */
-let compareACItems = [];
-let compareACTimer = null;
-
-function openCompareModal() {
-  if (!currentParcel) return;
-  document.getElementById('compare-overlay').classList.add('open');
-  document.getElementById('compare-result').innerHTML = '';
-  document.getElementById('compare-input').value = '';
-  compareParcelB = null;
-}
-
-function closeCompareModal(e) {
-  if (e && e.target !== document.getElementById('compare-overlay')) return;
-  document.getElementById('compare-overlay').classList.remove('open');
-}
-
-function onCompareInput(val) {
-  clearTimeout(compareACTimer);
-  if (val.length < 3) { document.getElementById('compare-ac').style.display = 'none'; return; }
-  compareACTimer = setTimeout(async () => {
-    try {
-      const r = await fetch(`/api/autocomplete?q=${encodeURIComponent(val)}`);
-      compareACItems = await r.json();
-      const ac = document.getElementById('compare-ac');
-      if (!compareACItems.length) { ac.style.display = 'none'; return; }
-      ac.innerHTML = compareACItems.map((it, i) =>
-        `<div style="padding:.4rem .7rem;cursor:pointer;font-size:.82rem;border-bottom:1px solid #f0f0f0;"
-          onmousedown="selectCompareAC(${i})">${esc(it.label)}</div>`
-      ).join('');
-      ac.style.display = 'block';
-    } catch(e) {}
-  }, 250);
-}
-
-function selectCompareAC(i) {
-  const item = compareACItems[i];
-  if (!item) return;
-  document.getElementById('compare-input').value = item.label;
-  document.getElementById('compare-ac').style.display = 'none';
-  doCompareSearch(item.lon, item.lat, item);
-}
-
-async function doCompareSearch(lon, lat, addrProps) {
-  const input = document.getElementById('compare-input').value.trim();
-  const result = document.getElementById('compare-result');
-  result.innerHTML = '<div style="text-align:center;padding:1rem;color:#6b7280;font-size:.85rem;">Recherche...</div>';
-  try {
-    const body = lon != null
-      ? { type: 'address', lon, lat, address_props: addrProps }
-      : { type: 'address', address: input };
-    const resp = await fetch('/api/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    if (!resp.ok) { result.innerHTML = `<p style="color:red;font-size:.85rem;">${data.error}</p>`; return; }
-    compareParcelB = data.parcel;
-    renderComparison(currentParcel, compareParcelB, currentAddr, data.address);
-  } catch(e) {
-    result.innerHTML = '<p style="color:red;font-size:.85rem;">Erreur reseau.</p>';
-  }
-}
-
-function renderComparison(pA, pB, addrA, addrB) {
-  const propsA = pA?.properties || {};
-  const propsB = pB?.properties || {};
-  const fmtArea = v => v ? `${parseInt(v).toLocaleString('fr-FR')} m²` : '—';
-
-  const rows = [
-    ['Adresse',      addrA?.label || '—',                addrB?.label || '—'],
-    ['Reference',    `${propsA.code_insee} ${propsA.section} ${propsA.numero}`,
-                     `${propsB.code_insee} ${propsB.section} ${propsB.numero}`],
-    ['Commune',      propsA.nom_com || propsA.code_insee || '—', propsB.nom_com || propsB.code_insee || '—'],
-    ['Contenance',   fmtArea(propsA.contenance),          fmtArea(propsB.contenance)],
-  ];
-
-  const html = `
-    <table class="compare-table">
-      <thead><tr><th>Critere</th><th>Parcelle A</th><th>Parcelle B</th></tr></thead>
-      <tbody>${rows.map(([label, a, b]) => `
-        <tr>
-          <td class="label-col">${label}</td>
-          <td>${esc(a)}</td>
-          <td>${esc(b)}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-    <div style="margin-top:.8rem;text-align:right;">
-      <button class="download-btn" style="margin:0;" onclick="document.getElementById('compare-overlay').classList.remove('open');onParcelFound(compareParcelB, null, 0, 0);">
-        Voir la parcelle B sur la carte
-      </button>
-    </div>`;
-  document.getElementById('compare-result').innerHTML = html;
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   WMS OVERLAY LAYERS (dans initMap via controle custom)
-   ═══════════════════════════════════════════════════════════════════════════ */
-let overlayLayers = {};
-
-function addOverlayControl() {
-  const OverlayControl = L.Control.extend({
-    options: { position: 'topright' },
-    onAdd: function() {
-      const container = L.DomUtil.create('div', 'overlay-panel');
-      container.innerHTML = `
-        <div class="overlay-row">
-          <input type="checkbox" id="ovl-hydro"> <label for="ovl-hydro" style="cursor:pointer;">Hydrographie</label>
-        </div>
-        <div class="overlay-row">
-          <input type="checkbox" id="ovl-foret"> <label for="ovl-foret" style="cursor:pointer;">Forets</label>
-        </div>
-        <div class="overlay-row">
-          <input type="checkbox" id="ovl-admin"> <label for="ovl-admin" style="cursor:pointer;">Communes</label>
-        </div>`;
-      L.DomEvent.disableClickPropagation(container);
-      L.DomEvent.disableScrollPropagation(container);
-      return container;
-    }
-  });
-  leafMap.addControl(new OverlayControl());
-
-  overlayLayers['hydro'] = L.tileLayer(
-    'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
-    '&LAYER=HYDROGRAPHY.HYDROGRAPHY&STYLE=normal&FORMAT=image/png' +
-    '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
-    { opacity: 0.75, maxZoom: 20 }
-  );
-  overlayLayers['foret'] = L.tileLayer(
-    'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
-    '&LAYER=LANDCOVER.FORESTINVENTORY.V2&STYLE=normal&FORMAT=image/png' +
-    '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
-    { opacity: 0.6, maxZoom: 20 }
-  );
-  overlayLayers['admin'] = L.tileLayer(
-    'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
-    '&LAYER=LIMITES_ADMINISTRATIVES_EXPRESS.LATEST&STYLE=normal&FORMAT=image/png' +
-    '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
-    { opacity: 0.8, maxZoom: 20 }
-  );
-
-  const ids = { 'ovl-hydro': 'hydro', 'ovl-foret': 'foret', 'ovl-admin': 'admin' };
-  for (const [checkId, key] of Object.entries(ids)) {
-    document.getElementById(checkId).addEventListener('change', function() {
-      if (this.checked) overlayLayers[key].addTo(leafMap);
-      else leafMap.removeLayer(overlayLayers[key]);
-    });
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   PWA — Service Worker
-   ═══════════════════════════════════════════════════════════════════════════ */
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/static/sw.js').catch(() => {});
-  });
-}
 </script>
 </body>
 </html>
