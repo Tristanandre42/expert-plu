@@ -1483,21 +1483,15 @@ async function downloadPDF() {
   if (!currentParcel) return;
   const btn = document.getElementById('btn-pdf');
   btn.disabled = true;
-  btn.textContent = 'Capture de la carte...';
+  btn.textContent = 'Generation du PDF...';
 
   try {
-    // Capture the Leaflet map as image
-    const mapImage = await captureMapImage();
-
-    btn.textContent = 'Generation du PDF...';
-
     const resp = await fetch('/api/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         parcel: currentParcel,
         address: currentAddr,
-        map_image: mapImage,
       }),
     });
 

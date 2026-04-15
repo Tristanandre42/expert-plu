@@ -332,8 +332,40 @@ def wms_image(bbox: list, layers: str, width=800, height=600, transparent=True) 
     return None
 
 
-def build_map(bbox: list, width=800, height=600) -> io.BytesIO | None:
-    """Carte 2D : fond neutre + parcelles cadastrales."""
+def draw_parcel_outline(img, geom: dict, bbox: list):
+    """Dessine le contour rouge de la parcelle sur l'image PIL."""
+    from PIL import ImageDraw
+    w, h = img.size
+    minlon, minlat, maxlon, maxlat = bbox
+    dlon = maxlon - minlon or 1e-9
+    dlat = maxlat - minlat or 1e-9
+
+    def to_px(lon, lat):
+        return (
+            (lon - minlon) / dlon * w,
+            h - (lat - minlat) / dlat * h,
+        )
+
+    rgba    = img.convert("RGBA")
+    overlay = PILImage.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw    = ImageDraw.Draw(overlay)
+
+    def draw_ring(coords):
+        pts = [to_px(c[0], c[1]) for c in coords]
+        draw.polygon(pts, fill=(220, 38, 38, 55))           # remplissage rouge translucide
+        draw.line(pts + [pts[0]], fill=(220, 38, 38, 255), width=4)  # contour rouge plein
+
+    if geom.get("type") == "Polygon":
+        draw_ring(geom["coordinates"][0])
+    elif geom.get("type") == "MultiPolygon":
+        for poly in geom["coordinates"]:
+            draw_ring(poly[0])
+
+    return PILImage.alpha_composite(rgba, overlay).convert("RGB")
+
+
+def build_map(bbox: list, geom: dict | None = None, width=800, height=600) -> io.BytesIO | None:
+    """Carte 2D : fond neutre + parcelles cadastrales + contour rouge de la parcelle."""
     _load_pdf_libs()
     parcels = wms_image(bbox, "CADASTRALPARCELS.PARCELLAIRE_EXPRESS", width, height, transparent=True)
     if not parcels:
@@ -342,6 +374,9 @@ def build_map(bbox: list, width=800, height=600) -> io.BytesIO | None:
     base = PILImage.new("RGBA", (width, height), (255, 255, 255, 255))
     overlay = PILImage.open(io.BytesIO(parcels)).convert("RGBA")
     combined = PILImage.alpha_composite(base, overlay).convert("RGB")
+    # Dessiner le contour de la parcelle selectionnee
+    if geom:
+        combined = draw_parcel_outline(combined, geom, bbox)
     buf = io.BytesIO()
     combined.save(buf, format="JPEG", quality=95)
     buf.seek(0)
@@ -431,8 +466,7 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
              all_prescriptions: list | None = None,
              risques_info: list | None = None,
              elevation: float | None = None,
-             errial_url: str | None = None,
-             map_image_data: str | None = None) -> io.BytesIO:
+             errial_url: str | None = None) -> io.BytesIO:
     _load_pdf_libs()
     _init_colors()
     props = parcel.get("properties", {})
@@ -447,23 +481,9 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
     bbox   = bbox_from_geometry(geom)
     clon, clat = centroid_from_geometry(geom)
 
-    # Use client-captured map image if available, otherwise fallback to WMS
-    map_buf = None
-    if map_image_data:
-        try:
-            # Strip data:image/...;base64, prefix
-            if "," in map_image_data:
-                map_image_data = map_image_data.split(",", 1)[1]
-            raw = base64.b64decode(map_image_data)
-            img = PILImage.open(io.BytesIO(raw)).convert("RGB")
-            map_buf = io.BytesIO()
-            img.save(map_buf, format="JPEG", quality=92)
-            map_buf.seek(0)
-        except Exception:
-            map_buf = None
-    if map_buf is None:
-        padded = pad_bbox(bbox, 3.0)
-        map_buf = build_map(padded)
+    # Carte toujours générée côté serveur : contour rouge précis sur la parcelle
+    padded  = pad_bbox(bbox, 2.5)
+    map_buf = build_map(padded, geom=geom)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -1032,9 +1052,8 @@ def api_risques():
 @app.route("/api/pdf", methods=["POST"])
 def api_pdf():
     body      = request.get_json(force=True)
-    parcel    = body.get("parcel")
-    addr      = body.get("address")
-    map_image = body.get("map_image")  # base64 data-URL from client
+    parcel = body.get("parcel")
+    addr   = body.get("address")
 
     if not parcel:
         return jsonify({"error": "Donnees de parcelle manquantes"}), 400
@@ -1097,7 +1116,6 @@ def api_pdf():
             risques_info=risques_list,
             elevation=elevation,
             errial_url=errial_url,
-            map_image_data=map_image,
         )
         p     = parcel.get("properties", {})
         fname = f"fiche_{p.get('code_insee','')}_{p.get('section','')}_{p.get('numero','')}.pdf"
