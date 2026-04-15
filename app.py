@@ -13,6 +13,12 @@ import base64
 import logging
 from datetime import datetime
 
+try:
+    import qrcode
+    HAS_QRCODE = True
+except ImportError:
+    HAS_QRCODE = False
+
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -738,6 +744,35 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
     link_tbl.setStyle(TableStyle(link_style_cmds))
     story.append(link_tbl)
 
+    # ── QR code ERRIAL
+    if HAS_QRCODE and errial_url:
+        try:
+            qr = qrcode.QRCode(version=1, box_size=4, border=2)
+            qr.add_data(errial_url)
+            qr.make(fit=True)
+            qr_img = qr.make_image(fill_color="black", back_color="white")
+            qr_buf = io.BytesIO()
+            qr_img.save(qr_buf, format="PNG")
+            qr_buf.seek(0)
+            qr_size = 2.5 * cm
+            qr_tbl = Table(
+                [[Image(qr_buf, width=qr_size, height=qr_size),
+                  Paragraph(
+                      "Scanner ce QR code pour acceder a l'etat<br/>des risques ERRIAL de cette parcelle",
+                      ParagraphStyle("qrt", fontSize=7.5, textColor=TEXT_MID,
+                                     leading=10, leftIndent=6)
+                  )]],
+                colWidths=[qr_size + 4, avail_w - qr_size - 4],
+            )
+            qr_tbl.setStyle(TableStyle([
+                ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            story += [Spacer(1, 0.2 * cm), qr_tbl]
+        except Exception:
+            pass
+
     # ── Footer
     story += [
         Spacer(1, 0.6 * cm),
@@ -1096,6 +1131,71 @@ def api_pdf():
                          as_attachment=True, download_name=fname)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Keep-alive ping ──────────────────────────────────────────────────────────
+
+@app.route("/api/ping")
+def api_ping():
+    return jsonify({"status": "ok"})
+
+
+# ── DVF — Prix du marche immobilier ─────────────────────────────────────────
+
+@app.route("/api/dvf")
+def api_dvf():
+    lat = request.args.get("lat", type=float)
+    lon = request.args.get("lon", type=float)
+    if lat is None or lon is None:
+        return jsonify({"error": "lat/lon requis"}), 400
+    try:
+        r = requests.get(
+            "https://api.dvf.etalab.gouv.fr/geoapi/mutations",
+            params={"lat": lat, "lon": lon, "dist": 300, "fields":
+                    "valeurfonc,datemut,libtypbien,surface_reelle_bati,"
+                    "sbati,sterr,nbpieces_principales"},
+            timeout=TIMEOUT,
+        )
+        if not r.ok:
+            return jsonify({"mutations": []})
+        feats = r.json().get("features", [])
+        mutations = []
+        for f in feats[:10]:
+            p = f.get("properties", {})
+            mutations.append({
+                "date":    p.get("datemut", ""),
+                "type":    p.get("libtypbien", ""),
+                "valeur":  p.get("valeurfonc"),
+                "surface_bati": p.get("surface_reelle_bati") or p.get("sbati"),
+                "surface_terrain": p.get("sterr"),
+                "pieces":  p.get("nbpieces_principales"),
+            })
+        # Sort by date desc
+        mutations.sort(key=lambda x: x["date"], reverse=True)
+        return jsonify({"mutations": mutations})
+    except Exception as e:
+        return jsonify({"mutations": [], "error": str(e)})
+
+
+# ── Parcelles voisines ────────────────────────────────────────────────────────
+
+@app.route("/api/voisines")
+def api_voisines():
+    """Retourne les parcelles de la meme section."""
+    code_insee = request.args.get("code_insee", "").strip()
+    section    = request.args.get("section", "").strip()
+    if not code_insee or not section:
+        return jsonify({"error": "code_insee et section requis"}), 400
+    try:
+        r = requests.get(
+            f"{CARTO_API}/cadastre/parcelle",
+            params={"code_insee": code_insee, "section": section, "_limit": 50},
+            timeout=TIMEOUT,
+        )
+        r.raise_for_status()
+        return jsonify(r.json())
+    except Exception as e:
+        return jsonify({"features": [], "error": str(e)})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
