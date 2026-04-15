@@ -1077,7 +1077,16 @@ def api_pdf():
         except Exception:
             pass
 
-        errial_url = f"https://errial.georisques.gouv.fr/#/?lon={clon}&lat={clat}"
+        # Lien rapport Géorisques (fonctionne directement avec lon/lat + adresse)
+        _city   = (addr or {}).get("city", "")
+        _zip    = (addr or {}).get("postcode", "")
+        _street = (addr or {}).get("label", "").split(",")[0].strip() if addr else ""
+        from urllib.parse import quote as _q
+        errial_url = (
+            f"https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi"
+            f"/rapport2?lon={clon}&lat={clat}"
+            f"&city={_q(_city)}&zipcode={_q(_zip)}&address={_q(_street)}"
+        )
 
         pdf = make_pdf(
             parcel, addr,
