@@ -289,6 +289,34 @@
     }
     .link-btn:hover { background: #0f2548; }
 
+    /* Map layer toggle (plan/satellite) */
+    .layer-toggle {
+      display: flex;
+      background: #fff;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 1px 5px rgba(0,0,0,.15);
+    }
+    .layer-btn {
+      padding: .4rem .75rem;
+      font-size: .75rem;
+      font-weight: 600;
+      background: #fff;
+      color: var(--blue);
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .15s, color .15s;
+    }
+    .layer-btn + .layer-btn {
+      border-left: 1px solid #e5e7eb;
+    }
+    .layer-btn:hover { background: #f3f4f6; }
+    .layer-btn.active {
+      background: var(--blue);
+      color: #fff;
+    }
+
     .download-row {
       display: flex; gap: .5rem; flex-wrap: wrap;
       margin-top: .5rem;
@@ -954,6 +982,22 @@ function displayCadastre(parcel, addr) {
   html += infoRow('Parcelle n\u00b0', p.numero);
   html += infoRow('Contenance', fmtArea(p.contenance));
 
+  // Bouton Google Maps : adresse complete si dispo, sinon coordonnees GPS
+  let mapsQuery = '';
+  if (addr && addr.label) {
+    mapsQuery = addr.label;
+  } else if (currentLat != null && currentLon != null) {
+    mapsQuery = `${currentLat},${currentLon}`;
+  }
+  if (mapsQuery) {
+    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`;
+    html += `<div class="download-row" style="margin-top:.6rem;">
+      <a class="link-btn" href="${esc(mapsUrl)}" target="_blank" rel="noopener">
+        Ouvrir dans Google Maps
+      </a>
+    </div>`;
+  }
+
   document.getElementById('body-cadastre').innerHTML = html;
 }
 
@@ -1118,11 +1162,6 @@ async function loadPatrimoine(lon, lat) {
           </div>`;
         }
       }
-    } else {
-      html += `<div class="info-row">
-        <span class="k">Secteur protege</span>
-        <span class="v"><span class="status-badge badge-green">NON</span></span>
-      </div>`;
     }
 
     if (data.all_prescriptions && data.all_prescriptions.length > 0) {
@@ -1288,6 +1327,11 @@ function loadSEM(code_insee) {
 /* ═══════════════════════════════════════════════════════════════════════════
    MAP (LEAFLET)
    ═══════════════════════════════════════════════════════════════════════════ */
+let planLayer = null;
+let satLayer = null;
+let cadastreLayer = null;
+let currentBaseMode = 'plan'; // 'plan' | 'satellite'
+
 function initMap() {
   if (mapInitialized) return;
   mapInitialized = true;
@@ -1298,17 +1342,30 @@ function initMap() {
   leafMap = L.map('map', { zoomControl: true }).setView([46.6, 2.5], 6);
 
   // Plan IGN v2
-  L.tileLayer(
+  planLayer = L.tileLayer(
     'https://data.geopf.fr/wmts?' +
     'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
     '&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2' +
     '&STYLE=normal&FORMAT=image/png' +
     '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
     { attribution: '&copy; IGN Geoplateforme', maxZoom: 20 }
-  ).addTo(leafMap);
+  );
 
-  // Couche cadastrale
-  L.tileLayer(
+  // Photo aerienne (satellite) IGN
+  satLayer = L.tileLayer(
+    'https://data.geopf.fr/wmts?' +
+    'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+    '&LAYER=ORTHOIMAGERY.ORTHOPHOTOS' +
+    '&STYLE=normal&FORMAT=image/jpeg' +
+    '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+    { attribution: '&copy; IGN Geoplateforme', maxZoom: 20 }
+  );
+
+  // Fond par defaut : plan
+  planLayer.addTo(leafMap);
+
+  // Couche cadastrale (overlay)
+  cadastreLayer = L.tileLayer(
     'https://data.geopf.fr/wmts?' +
     'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
     '&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS' +
@@ -1316,6 +1373,26 @@ function initMap() {
     '&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
     { opacity: 0.7, maxZoom: 20 }
   ).addTo(leafMap);
+
+  // Custom control: toggle Plan / Satellite
+  const ToggleControl = L.Control.extend({
+    options: { position: 'topright' },
+    onAdd: function() {
+      const container = L.DomUtil.create('div', 'leaflet-bar layer-toggle');
+      container.innerHTML = `
+        <button type="button" id="btn-layer-plan" class="layer-btn active" title="Vue plan">Plan</button>
+        <button type="button" id="btn-layer-sat"  class="layer-btn"        title="Vue satellite">Satellite</button>
+      `;
+      L.DomEvent.disableClickPropagation(container);
+      L.DomEvent.disableScrollPropagation(container);
+      return container;
+    },
+  });
+  leafMap.addControl(new ToggleControl());
+
+  // Handlers
+  document.getElementById('btn-layer-plan').addEventListener('click', () => setBaseLayer('plan'));
+  document.getElementById('btn-layer-sat').addEventListener('click', () => setBaseLayer('satellite'));
 
   // Click handler for parcel selection
   leafMap.on('click', function(e) {
@@ -1327,6 +1404,28 @@ function initMap() {
   const hint = document.getElementById('map-hint');
   hint.classList.add('visible');
   setTimeout(() => hint.classList.remove('visible'), 4000);
+}
+
+function setBaseLayer(mode) {
+  if (!leafMap || mode === currentBaseMode) return;
+  if (mode === 'satellite') {
+    leafMap.removeLayer(planLayer);
+    satLayer.addTo(leafMap);
+    // Reorder: cadastre on top
+    if (cadastreLayer) cadastreLayer.bringToFront();
+  } else {
+    leafMap.removeLayer(satLayer);
+    planLayer.addTo(leafMap);
+    if (cadastreLayer) cadastreLayer.bringToFront();
+  }
+  currentBaseMode = mode;
+  // Update button states
+  const planBtn = document.getElementById('btn-layer-plan');
+  const satBtn  = document.getElementById('btn-layer-sat');
+  if (planBtn && satBtn) {
+    planBtn.classList.toggle('active', mode === 'plan');
+    satBtn.classList.toggle('active', mode === 'satellite');
+  }
 }
 
 function showOnMap(parcel) {
