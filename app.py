@@ -332,16 +332,59 @@ def wms_image(bbox: list, layers: str, width=800, height=600, transparent=True) 
     return None
 
 
-def build_map(bbox: list, width=800, height=600) -> io.BytesIO | None:
-    """Carte 2D : fond neutre + parcelles cadastrales."""
+def build_map(bbox: list, geom: dict | None = None, width=800, height=600) -> io.BytesIO | None:
+    """Carte 2D : fond Plan IGN + parcelles cadastrales + contour rouge de la parcelle."""
     _load_pdf_libs()
-    parcels = wms_image(bbox, "CADASTRALPARCELS.PARCELLAIRE_EXPRESS", width, height, transparent=True)
-    if not parcels:
+    from PIL import ImageDraw
+
+    has_data = False
+
+    # 1. Fond Plan IGN (ou blanc si indisponible)
+    plan_data = wms_image(bbox, "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", width, height, transparent=False)
+    if plan_data:
+        base = PILImage.open(io.BytesIO(plan_data)).convert("RGBA")
+        has_data = True
+    else:
+        base = PILImage.new("RGBA", (width, height), (255, 255, 255, 255))
+
+    # 2. Overlay parcelles cadastrales (transparent)
+    parcels_data = wms_image(bbox, "CADASTRALPARCELS.PARCELLAIRE_EXPRESS", width, height, transparent=True)
+    if parcels_data:
+        overlay = PILImage.open(io.BytesIO(parcels_data)).convert("RGBA")
+        base = PILImage.alpha_composite(base, overlay)
+        has_data = True
+
+    # 3. Contour rouge de la parcelle selectionnee
+    if geom and geom.get("coordinates"):
+        draw = ImageDraw.Draw(base)
+        has_data = True
+
+        def geo_to_pixel(lon, lat):
+            px = (lon - bbox[0]) / (bbox[2] - bbox[0]) * width
+            py = (bbox[3] - lat) / (bbox[3] - bbox[1]) * height
+            return (int(round(px)), int(round(py)))
+
+        def draw_ring(ring):
+            points = [geo_to_pixel(c[0], c[1]) for c in ring]
+            if len(points) >= 3:
+                for i in range(len(points) - 1):
+                    draw.line([points[i], points[i + 1]], fill=(220, 38, 38, 255), width=3)
+                draw.line([points[-1], points[0]], fill=(220, 38, 38, 255), width=3)
+
+        geom_type = geom.get("type", "")
+        coords = geom.get("coordinates", [])
+        if geom_type == "Polygon":
+            for ring in coords:
+                draw_ring(ring)
+        elif geom_type == "MultiPolygon":
+            for polygon in coords:
+                for ring in polygon:
+                    draw_ring(ring)
+
+    if not has_data:
         return None
-    # Fond blanc + overlay cadastral = carte 2D propre
-    base = PILImage.new("RGBA", (width, height), (255, 255, 255, 255))
-    overlay = PILImage.open(io.BytesIO(parcels)).convert("RGBA")
-    combined = PILImage.alpha_composite(base, overlay).convert("RGB")
+
+    combined = base.convert("RGB")
     buf = io.BytesIO()
     combined.save(buf, format="JPEG", quality=95)
     buf.seek(0)
@@ -431,8 +474,7 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
              all_prescriptions: list | None = None,
              risques_info: list | None = None,
              elevation: float | None = None,
-             errial_url: str | None = None,
-             map_image_data: str | None = None) -> io.BytesIO:
+             errial_url: str | None = None) -> io.BytesIO:
     _load_pdf_libs()
     _init_colors()
     props = parcel.get("properties", {})
@@ -447,23 +489,9 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
     bbox   = bbox_from_geometry(geom)
     clon, clat = centroid_from_geometry(geom)
 
-    # Use client-captured map image if available, otherwise fallback to WMS
-    map_buf = None
-    if map_image_data:
-        try:
-            # Strip data:image/...;base64, prefix
-            if "," in map_image_data:
-                map_image_data = map_image_data.split(",", 1)[1]
-            raw = base64.b64decode(map_image_data)
-            img = PILImage.open(io.BytesIO(raw)).convert("RGB")
-            map_buf = io.BytesIO()
-            img.save(map_buf, format="JPEG", quality=92)
-            map_buf.seek(0)
-        except Exception:
-            map_buf = None
-    if map_buf is None:
-        padded = pad_bbox(bbox, 3.0)
-        map_buf = build_map(padded)
+    # Carte generee cote serveur (Plan IGN + cadastre + contour rouge)
+    padded = pad_bbox(bbox, 3.0)
+    map_buf = build_map(padded, geom)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -700,7 +728,7 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
     story += [Spacer(1, 0.2 * cm), _section_header("Liens utiles", avail_w)]
     links_rows = []
     if errial_url:
-        links_rows.append(("Etat des risques (ERRIAL)", errial_url))
+        links_rows.append(("Rapport des risques (Georisques)", errial_url))
     atlas_bbox = bbox_from_geometry(geom)
     atlas_pad = pad_bbox(atlas_bbox, 1.5)
     atlas_url = (
@@ -1011,19 +1039,17 @@ def api_risques():
     if code_insee:
         risques_commune = get_risques_commune(code_insee)
 
-    # Lien ERRIAL
-    errial_url = (
-        f"https://errial.georisques.gouv.fr/#/?lon={lon}&lat={lat}"
-    )
-    # Lien rapport Georisques
-    georisques_url = (
-        f"https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi"
-    )
+    # Lien rapport Georisques (remplace ERRIAL qui ne fonctionne plus)
+    rapport_url = None
+    if code_insee:
+        rapport_url = (
+            f"https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi"
+            f"/rapport2/commune/{code_insee}"
+        )
 
     return jsonify({
         "risques": risques_commune,
-        "errial_url": errial_url,
-        "georisques_url": georisques_url,
+        "errial_url": rapport_url,
     })
 
 
@@ -1034,7 +1060,6 @@ def api_pdf():
     body      = request.get_json(force=True)
     parcel    = body.get("parcel")
     addr      = body.get("address")
-    map_image = body.get("map_image")  # base64 data-URL from client
 
     if not parcel:
         return jsonify({"error": "Donnees de parcelle manquantes"}), 400
@@ -1077,7 +1102,10 @@ def api_pdf():
         except Exception:
             pass
 
-        errial_url = f"https://errial.georisques.gouv.fr/#/?lon={clon}&lat={clat}"
+        errial_url = (
+            f"https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi"
+            f"/rapport2/commune/{code_insee}"
+        ) if code_insee else None
 
         pdf = make_pdf(
             parcel, addr,
@@ -1088,7 +1116,6 @@ def api_pdf():
             risques_info=risques_list,
             elevation=elevation,
             errial_url=errial_url,
-            map_image_data=map_image,
         )
         p     = parcel.get("properties", {})
         fname = f"fiche_{p.get('code_insee','')}_{p.get('section','')}_{p.get('numero','')}.pdf"

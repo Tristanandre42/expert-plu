@@ -516,7 +516,7 @@
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>
           </svg>
-          Risques &amp; ERRIAL
+          Risques &amp; Georisques
           <span class="arrow">&#9654;</span>
         </div>
         <div class="info-body open" id="body-risques"></div>
@@ -1194,7 +1194,7 @@ async function loadPatrimoine(lon, lat) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   RISQUES / ERRIAL
+   RISQUES / GEORISQUES
    ═══════════════════════════════════════════════════════════════════════════ */
 async function loadRisques(lon, lat, code_insee) {
   const body = document.getElementById('body-risques');
@@ -1233,11 +1233,11 @@ async function loadRisques(lon, lat, code_insee) {
       </div>`;
     }
 
-    // Liens ERRIAL et Georisques
+    // Lien Georisques rapport
     html += '<div class="download-row" style="margin-top:.5rem;">';
     if (data.errial_url) {
       html += `<a class="link-btn" href="${esc(data.errial_url)}" target="_blank" rel="noopener">
-        Etat des risques (ERRIAL)
+        Rapport des risques (Georisques)
       </a>`;
     }
     html += '</div>';
@@ -1475,21 +1475,15 @@ async function downloadPDF() {
   if (!currentParcel) return;
   const btn = document.getElementById('btn-pdf');
   btn.disabled = true;
-  btn.textContent = 'Capture de la carte...';
+  btn.textContent = 'Generation du PDF...';
 
   try {
-    // Capture the Leaflet map as image
-    const mapImage = await captureMapImage();
-
-    btn.textContent = 'Generation du PDF...';
-
     const resp = await fetch('/api/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         parcel: currentParcel,
         address: currentAddr,
-        map_image: mapImage,
       }),
     });
 
