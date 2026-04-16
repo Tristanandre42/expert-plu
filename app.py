@@ -1039,17 +1039,12 @@ def api_risques():
     if code_insee:
         risques_commune = get_risques_commune(code_insee)
 
-    # Lien rapport Georisques (remplace ERRIAL qui ne fonctionne plus)
-    rapport_url = None
-    if code_insee:
-        rapport_url = (
-            f"https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi"
-            f"/rapport2/commune/{code_insee}"
-        )
+    # Lien Georisques : page principale d'etat des risques
+    georisques_url = "https://errial.georisques.gouv.fr/"
 
     return jsonify({
         "risques": risques_commune,
-        "errial_url": rapport_url,
+        "errial_url": georisques_url,
     })
 
 
@@ -1102,10 +1097,7 @@ def api_pdf():
         except Exception:
             pass
 
-        errial_url = (
-            f"https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi"
-            f"/rapport2/commune/{code_insee}"
-        ) if code_insee else None
+        errial_url = "https://errial.georisques.gouv.fr/"
 
         pdf = make_pdf(
             parcel, addr,
