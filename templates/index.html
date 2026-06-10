@@ -1285,37 +1285,48 @@ async function loadPatrimoine(lon, lat) {
    ═══════════════════════════════════════════════════════════════════════════ */
 function loadRisques(lon, lat, code_insee) {
   const body = document.getElementById('body-risques');
-  // Adresse a coller dans la recherche Georisques (ERRIAL ne gere pas les liens directs)
+  // ERRIAL ne gere pas les liens directs vers une parcelle : on affiche
+  // l'adresse (selectionnable) + un bouton Copier + un lien vers Georisques.
   const addrLabel = currentAddr?.label || '';
   const pr = currentParcel?.properties || {};
   const parcelRef = `${pr.nom_com || ''} ${pr.section || ''}${pr.numero || ''}`.trim();
-  const clip = (addrLabel || parcelRef).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const address = addrLabel || parcelRef;
   body.innerHTML = `
-    <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.6rem;">
-      Au clic, l'adresse de la parcelle est copiee dans le presse-papier. Collez-la
-      (Ctrl+V / Cmd+V) dans la barre de recherche du site Georisques qui s'ouvre,
-      pour obtenir l'etat des risques.
+    <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.5rem;">
+      Georisques n'ouvre pas directement une parcelle. Copiez l'adresse ci-dessous,
+      ouvrez Georisques, puis collez-la dans sa barre de recherche.
     </p>
-    <div class="download-row">
+    <input id="georisques-addr" type="text" readonly value="${esc(address)}"
+           onclick="this.select()" title="Cliquez pour selectionner, puis copiez"
+           style="width:100%; padding:.45rem .6rem; border:1px solid var(--border); border-radius:6px;
+                  font-size:.8rem; margin-bottom:.5rem; background:#fff; color:var(--text); cursor:text;">
+    <div class="download-row" style="gap:.4rem;">
       <button class="link-btn" style="border:none; cursor:pointer; flex:1; text-align:center;"
-              onclick="openGeorisques('${clip}')">
-        Copier l'adresse &amp; ouvrir Georisques
-      </button>
+              onclick="copyGeorisquesAddr()">Copier l'adresse</button>
+      <a class="link-btn" href="https://errial.georisques.gouv.fr/#/" target="_blank" rel="noopener"
+         style="flex:1; text-align:center;">Ouvrir Georisques</a>
     </div>
     <span id="georisques-confirm" style="font-size:.72rem; color:var(--green); display:none; margin-top:.3rem;">
-      Adresse copiee — collez-la dans la recherche Georisques.
+      Adresse copiee !
     </span>`;
 }
 
-function openGeorisques(address) {
-  // 1. Copier l'adresse PENDANT que le document a le focus (avant d'ouvrir l'onglet)
-  if (address) {
-    try { navigator.clipboard.writeText(address); } catch (e) {}
-    const el = document.getElementById('georisques-confirm');
-    if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 5000); }
+function copyGeorisquesAddr() {
+  const input = document.getElementById('georisques-addr');
+  if (!input) return;
+  // Selection visible + copie synchrone (geste utilisateur, aucune navigation)
+  input.focus();
+  input.select();
+  input.setSelectionRange(0, input.value.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  try { if (navigator.clipboard) navigator.clipboard.writeText(input.value); } catch (e) {}
+  const el = document.getElementById('georisques-confirm');
+  if (el) {
+    el.textContent = ok ? 'Adresse copiee !' : 'Selectionnez le texte puis Ctrl+C / Cmd+C';
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 4000);
   }
-  // 2. Ouvrir ERRIAL (toujours dans le geste utilisateur -> pas de blocage popup)
-  window.open('https://errial.georisques.gouv.fr/#/', '_blank', 'noopener');
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
