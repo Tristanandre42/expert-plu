@@ -520,13 +520,13 @@
         <div class="info-body open" id="body-risques"></div>
       </div>
 
-      <!-- 5. Prix de l'immobilier (DVF) -->
+      <!-- 5. Valeurs foncieres (DVF) -->
       <div class="info-section" id="sec-dvf">
         <div class="info-header open" onclick="toggleSection('dvf')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
           </svg>
-          Prix de l'immobilier
+          Valeurs foncieres (DVF)
           <span class="arrow">&#9654;</span>
         </div>
         <div class="info-body open" id="body-dvf"></div>
@@ -1261,124 +1261,37 @@ async function loadPatrimoine(lon, lat) {
 /* ═══════════════════════════════════════════════════════════════════════════
    RISQUES / GEORISQUES
    ═══════════════════════════════════════════════════════════════════════════ */
-async function loadRisques(lon, lat, code_insee) {
+function loadRisques(lon, lat, code_insee) {
   const body = document.getElementById('body-risques');
-  try {
-    const resp = await fetch(`/api/risques?lon=${lon}&lat=${lat}&code_insee=${code_insee}`);
-    const data = await resp.json();
-
-    let html = '';
-
-    if (data.risques && data.risques.length > 0) {
-      html += `<div class="info-row">
-        <span class="k">Risques identifies</span>
-        <span class="v"><span class="status-badge badge-orange">${data.risques.length} risque(s)</span></span>
-      </div>`;
-      html += '<div style="display:flex; flex-wrap:wrap; gap:.35rem; padding:.4rem 0;">';
-      for (const r of data.risques) {
-        const lib = (typeof r === 'string') ? r : (r.libelle || 'Risque');
-        html += `<span class="status-badge badge-orange" style="font-weight:600;">&#9888; ${esc(lib)}</span>`;
-      }
-      html += '</div>';
-    } else {
-      html += `<div class="info-row">
-        <span class="k">Risques identifies</span>
-        <span class="v"><span class="status-badge badge-green">Aucun recense</span></span>
-      </div>`;
-    }
-
-    // Bouton copier adresse
-    const addrLabel = currentAddr?.label || '';
-    const parcelRef = currentParcel?.properties ? `${currentParcel.properties.nom_com || ''} - Parcelle ${currentParcel.properties.section || ''}${currentParcel.properties.numero || ''}` : '';
-    const clipText = addrLabel || parcelRef;
-    if (clipText) {
-      html += `<div style="margin-top:.5rem;">
-        <button class="link-btn" style="border:none;cursor:pointer;" onclick="copyToClipboard('${clipText.replace(/'/g, "\\'")}')">
-          Copier l'adresse dans le presse-papier
-        </button>
-        <span id="copy-confirm" style="font-size:.7rem;color:var(--green);margin-left:.4rem;display:none;">Copie !</span>
-      </div>`;
-    }
-
-    // Lien Georisques rapport
-    html += '<div class="download-row" style="margin-top:.5rem;">';
-    if (data.errial_url) {
-      html += `<a class="link-btn" href="${esc(data.errial_url)}" target="_blank" rel="noopener">
-        Rapport des risques (Georisques)
-      </a>`;
-    }
-    html += '</div>';
-
-    body.innerHTML = html;
-  } catch (e) {
-    body.innerHTML = '<div class="empty-msg">Erreur lors du chargement des risques.</div>';
-  }
+  const georisquesUrl = 'https://errial.georisques.gouv.fr/';
+  body.innerHTML = `
+    <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.6rem;">
+      Consultez l'etat des risques naturels et technologiques (inondation, seisme,
+      retrait-gonflement des argiles, radon...) sur le site officiel Georisques.
+    </p>
+    <div class="download-row">
+      <a class="link-btn" href="${esc(georisquesUrl)}" target="_blank" rel="noopener" style="flex:1; text-align:center;">
+        Consulter les risques (Georisques)
+      </a>
+    </div>`;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PRIX DE L'IMMOBILIER (DVF)
+   VALEURS FONCIERES (DVF) — bouton vers le site officiel sur la parcelle
    ═══════════════════════════════════════════════════════════════════════════ */
-async function loadDvf(lon, lat, code_insee) {
+function loadDvf(lon, lat, code_insee) {
   const body = document.getElementById('body-dvf');
-  if (!code_insee) { body.innerHTML = '<div class="empty-msg">Donnees indisponibles.</div>'; return; }
-  try {
-    const resp = await fetch(`/api/dvf?lon=${lon}&lat=${lat}&code_insee=${code_insee}`);
-    const data = await resp.json();
-
-    if (!data.disponible || !data.nb_mutations) {
-      body.innerHTML = '<div class="empty-msg">Aucune transaction DVF a proximite.</div>';
-      return;
-    }
-
-    const fmt = n => n.toLocaleString('fr-FR');
-    let html = '';
-
-    // Cartes prix au m2
-    const pm = data.prix_m2 || {};
-    const cards = [
-      ['Maison', pm.maison, '#16a34a'],
-      ['Appartement', pm.appartement, '#3b6cb7'],
-      ['Terrain', pm.terrain, '#ea580c'],
-    ].filter(c => c[1] && c[1].median);
-
-    if (cards.length) {
-      html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); gap:.5rem; margin-bottom:.6rem;">';
-      for (const [label, s, color] of cards) {
-        html += `<div style="background:var(--blue-light); border-radius:8px; padding:.5rem .6rem; text-align:center;">
-          <div style="font-size:.66rem; color:var(--muted); font-weight:600; text-transform:uppercase;">${label}</div>
-          <div style="font-size:1.05rem; font-weight:800; color:${color}; line-height:1.2;">${fmt(s.median)}<span style="font-size:.6rem; font-weight:600;"> €/m²</span></div>
-          <div style="font-size:.62rem; color:var(--muted);">${s.count} vente(s)</div>
-        </div>`;
-      }
-      html += '</div>';
-    }
-
-    html += infoRow('Transactions analysees', `${data.nb_mutations} dans un rayon de ${data.rayon_m} m`);
-
-    // Ventes recentes
-    const ventes = data.ventes_recentes || [];
-    if (ventes.length) {
-      html += '<div style="margin-top:.5rem; font-size:.72rem; color:var(--muted); font-weight:700; text-transform:uppercase;">Ventes recentes</div>';
-      html += '<div style="margin-top:.3rem;">';
-      for (const v of ventes.slice(0, 6)) {
-        const surf = v.surface_bati ? `${v.surface_bati} m² bati`
-                   : (v.surface_terrain ? `${v.surface_terrain} m² terrain` : '');
-        const dateFr = v.date ? v.date.split('-').reverse().join('/') : '';
-        html += `<div class="info-row" style="align-items:flex-start;">
-          <span class="k" style="min-width:62px;">${dateFr}</span>
-          <span class="v"><strong>${fmt(v.valeur)} €</strong> &middot; ${esc(v.type)}${surf ? ' &middot; ' + surf : ''}</span>
-        </div>`;
-      }
-      html += '</div>';
-    }
-
-    html += `<div style="font-size:.66rem; color:var(--muted); margin-top:.5rem; line-height:1.4;">
-      Source : DVF / DGFiP (Etalab). Prix indicatifs des transactions reelles a proximite.</div>`;
-
-    body.innerHTML = html;
-  } catch (e) {
-    body.innerHTML = '<div class="empty-msg">Erreur lors du chargement des prix.</div>';
-  }
+  const url = `https://explore.data.gouv.fr/immobilier?onglet=carte&lat=${lat}&lng=${lon}&zoom=18`;
+  body.innerHTML = `
+    <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.6rem;">
+      Consultez les ventes immobilieres reelles (prix, surfaces, dates) autour de cette parcelle
+      sur le site officiel DVF — Demandes de valeurs foncieres (DGFiP).
+    </p>
+    <div class="download-row">
+      <a class="link-btn" href="${esc(url)}" target="_blank" rel="noopener" style="flex:1; text-align:center;">
+        Voir les ventes DVF sur la parcelle
+      </a>
+    </div>`;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
