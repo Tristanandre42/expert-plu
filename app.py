@@ -504,7 +504,6 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
              plu_docs: list | None = None,
              patrimoine_info: list | None = None,
              all_prescriptions: list | None = None,
-             risques_info: list | None = None,
              elevation: float | None = None,
              errial_url: str | None = None) -> io.BytesIO:
     _load_pdf_libs()
@@ -732,35 +731,6 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
             lib = pp.get("libelle", pp.get("txt", ""))
             presc_rows.append((typep, lib))
         story.append(_kv_table(presc_rows, avail_w))
-
-    # ── Risques reglementaires
-    story += [Spacer(1, 0.2 * cm), _section_header("Risques reglementaires", avail_w)]
-    if risques_info:
-        risk_rows = []
-        for risque in risques_info:
-            if isinstance(risque, dict):
-                lib = risque.get("libelle") or risque.get("libelle_risque_long") or ""
-            else:
-                lib = str(risque)
-            if lib:
-                risk_rows.append(("Risque recense", lib))
-        if risk_rows:
-            story.append(_kv_table(risk_rows, avail_w))
-        else:
-            story.append(Paragraph("Aucun risque reglementaire recense.", small))
-    else:
-        ok_tbl = Table(
-            [[Paragraph("Aucun risque reglementaire recense",
-                         ParagraphStyle("ok2", fontSize=9, textColor=GREEN_TXT, leading=12))]],
-            colWidths=[avail_w],
-        )
-        ok_tbl.setStyle(TableStyle([
-            ("BACKGROUND",    (0, 0), (-1, -1), GREEN_BG),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 10),
-            ("TOPPADDING",    (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        story.append(ok_tbl)
 
     # ── Liens utiles
     story += [Spacer(1, 0.2 * cm), _section_header("Liens utiles", avail_w)]
@@ -1123,18 +1093,16 @@ def api_pdf():
                 return default
 
         # Tous les appels externes en parallele (gain majeur sur Render free tier)
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        with ThreadPoolExecutor(max_workers=4) as ex:
             f_elev = ex.submit(_safe, get_elevation, clon, clat)
             f_zon = ex.submit(_safe, get_zonage, clon, clat, default=[])
             f_doc = ex.submit(_safe, get_plu_document, clon, clat, default=[])
             f_presc = ex.submit(_safe, get_prescriptions, clon, clat, default=[])
-            f_risq = ex.submit(_safe, get_risques_commune, code_insee, default=[]) if code_insee else None
 
             elev_data = f_elev.result()
             zonage_list = f_zon.result() or []
             plu_docs_list = f_doc.result() or []
             all_prescs_list = f_presc.result() or []
-            risques_commune = (f_risq.result() if f_risq else []) or []
 
         elevation = elev_data.get("z") if elev_data else None
         patrimoine_list = [
@@ -1142,7 +1110,6 @@ def api_pdf():
             if p.get("properties", {}).get("typepsc", "").startswith("AC")
             or p.get("properties", {}).get("typepsc", "").startswith("05")
         ]
-        risques_flat = flatten_risques(risques_commune)
 
         errial_url = "https://errial.georisques.gouv.fr/"
 
@@ -1152,7 +1119,6 @@ def api_pdf():
             plu_docs=plu_docs_list,
             patrimoine_info=patrimoine_list,
             all_prescriptions=all_prescs_list,
-            risques_info=risques_flat,
             elevation=elevation,
             errial_url=errial_url,
         )
