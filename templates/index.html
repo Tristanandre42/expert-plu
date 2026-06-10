@@ -1029,6 +1029,28 @@ function onParcelFound(parcel, addr, lon, lat) {
 
   // Saint-Etienne Metropole
   loadSEM(code_insee);
+
+  // Si pas d'adresse (recherche par reference, clic carte, lien partage),
+  // on geocode a l'envers le centre de la parcelle pour obtenir une vraie
+  // adresse (utile pour le presse-papier Georisques).
+  if (!currentAddr || !currentAddr.label) {
+    reverseGeocode(lon, lat).then(label => {
+      if (label && currentParcel === parcel) {
+        currentAddr = { label };
+        loadRisques(lon, lat, code_insee);  // re-render avec la vraie adresse
+      }
+    });
+  }
+}
+
+async function reverseGeocode(lon, lat) {
+  try {
+    const r = await fetch(`https://api-adresse.data.gouv.fr/reverse/?lon=${lon}&lat=${lat}`);
+    const d = await r.json();
+    return d.features?.[0]?.properties?.label || '';
+  } catch (e) {
+    return '';
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1263,17 +1285,37 @@ async function loadPatrimoine(lon, lat) {
    ═══════════════════════════════════════════════════════════════════════════ */
 function loadRisques(lon, lat, code_insee) {
   const body = document.getElementById('body-risques');
-  const georisquesUrl = 'https://errial.georisques.gouv.fr/';
+  // Adresse a coller dans la recherche Georisques (ERRIAL ne gere pas les liens directs)
+  const addrLabel = currentAddr?.label || '';
+  const pr = currentParcel?.properties || {};
+  const parcelRef = `${pr.nom_com || ''} ${pr.section || ''}${pr.numero || ''}`.trim();
+  const clip = (addrLabel || parcelRef).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   body.innerHTML = `
     <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.6rem;">
-      Consultez l'etat des risques naturels et technologiques (inondation, seisme,
-      retrait-gonflement des argiles, radon...) sur le site officiel Georisques.
+      Au clic, l'adresse de la parcelle est copiee dans le presse-papier. Collez-la
+      (Ctrl+V / Cmd+V) dans la barre de recherche du site Georisques qui s'ouvre,
+      pour obtenir l'etat des risques.
     </p>
     <div class="download-row">
-      <a class="link-btn" href="${esc(georisquesUrl)}" target="_blank" rel="noopener" style="flex:1; text-align:center;">
-        Consulter les risques (Georisques)
-      </a>
-    </div>`;
+      <button class="link-btn" style="border:none; cursor:pointer; flex:1; text-align:center;"
+              onclick="openGeorisques('${clip}')">
+        Copier l'adresse &amp; ouvrir Georisques
+      </button>
+    </div>
+    <span id="georisques-confirm" style="font-size:.72rem; color:var(--green); display:none; margin-top:.3rem;">
+      Adresse copiee — collez-la dans la recherche Georisques.
+    </span>`;
+}
+
+function openGeorisques(address) {
+  // 1. Copier l'adresse PENDANT que le document a le focus (avant d'ouvrir l'onglet)
+  if (address) {
+    try { navigator.clipboard.writeText(address); } catch (e) {}
+    const el = document.getElementById('georisques-confirm');
+    if (el) { el.style.display = 'block'; setTimeout(() => el.style.display = 'none', 5000); }
+  }
+  // 2. Ouvrir ERRIAL (toujours dans le geste utilisateur -> pas de blocage popup)
+  window.open('https://errial.georisques.gouv.fr/#/', '_blank', 'noopener');
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
