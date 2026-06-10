@@ -14,8 +14,6 @@
   <!-- Leaflet (async loading — non-bloquant) -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-  <!-- html2canvas for map screenshot -->
-  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -522,7 +520,19 @@
         <div class="info-body open" id="body-risques"></div>
       </div>
 
-      <!-- 5. Saint-Etienne Metropole -->
+      <!-- 5. Prix de l'immobilier (DVF) -->
+      <div class="info-section" id="sec-dvf">
+        <div class="info-header open" onclick="toggleSection('dvf')">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+          Prix de l'immobilier
+          <span class="arrow">&#9654;</span>
+        </div>
+        <div class="info-body open" id="body-dvf"></div>
+      </div>
+
+      <!-- 6. Saint-Etienne Metropole -->
       <div class="info-section" id="sec-sem" style="display:none;">
         <div class="info-header open" onclick="toggleSection('sem')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -541,6 +551,12 @@
             Telecharger la fiche PDF
           </button>
         </div>
+        <div class="download-row" style="margin-top:.5rem;">
+          <button class="link-btn" style="border:none; cursor:pointer; flex:1;" id="btn-share" onclick="shareLink()">
+            Copier le lien de la fiche
+          </button>
+        </div>
+        <span id="share-confirm" style="font-size:.7rem; color:var(--green); display:none;">Lien copie !</span>
       </div>
     </div>
   </div>
@@ -684,6 +700,44 @@ function copyToClipboard(text) {
     const el = document.getElementById('copy-confirm');
     if (el) { el.style.display = 'inline'; setTimeout(() => el.style.display = 'none', 2000); }
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PARTAGE / LIEN PROFOND (deep-link)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function shareLink() {
+  navigator.clipboard.writeText(window.location.href).then(() => {
+    const el = document.getElementById('share-confirm');
+    if (el) { el.style.display = 'inline'; setTimeout(() => el.style.display = 'none', 2500); }
+  });
+}
+
+async function loadParcelByRef(codeInsee, section, numero) {
+  try {
+    setLoading(true);
+    const resp = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'reference', code_insee: codeInsee, section_numero: section + numero }),
+    });
+    const data = await resp.json();
+    if (data.parcel) {
+      onParcelFound(data.parcel, data.address || null, data.lon, data.lat);
+    }
+  } catch (e) {
+    // silencieux
+  } finally {
+    setLoading(false);
+  }
+}
+
+function applyDeepLink() {
+  const ref = new URLSearchParams(window.location.search).get('ref');
+  if (!ref) return;
+  const parts = ref.split('-');
+  if (parts.length >= 3) {
+    loadParcelByRef(parts[0], parts[1], parts.slice(2).join('-'));
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -935,6 +989,12 @@ function onParcelFound(parcel, addr, lon, lat) {
   currentLon = lon;
   currentLat = lat;
 
+  // Met a jour l'URL pour permettre le partage de la fiche
+  const pr = parcel.properties || {};
+  if (pr.code_insee && pr.section && pr.numero) {
+    history.replaceState(null, '', `?ref=${pr.code_insee}-${pr.section}-${pr.numero}`);
+  }
+
   document.getElementById('results-section').style.display = 'block';
 
   // 1. Cadastre (immediate)
@@ -950,6 +1010,7 @@ function onParcelFound(parcel, addr, lon, lat) {
   document.getElementById('body-urbanisme').innerHTML = loadingHTML();
   document.getElementById('body-patrimoine').innerHTML = loadingHTML();
   document.getElementById('body-risques').innerHTML = loadingHTML();
+  document.getElementById('body-dvf').innerHTML = loadingHTML();
 
   // Load GPS + altitude
   loadElevation(lon, lat);
@@ -962,6 +1023,9 @@ function onParcelFound(parcel, addr, lon, lat) {
 
   // Load risques
   loadRisques(lon, lat, code_insee);
+
+  // Load prix immobilier (DVF)
+  loadDvf(lon, lat, code_insee);
 
   // Saint-Etienne Metropole
   loadSEM(code_insee);
@@ -1089,9 +1153,10 @@ async function loadUrbanisme(lon, lat) {
     if (docData.documents && docData.documents.length > 0) {
       html += '<div style="margin-top:.5rem; padding-top:.5rem; border-top:1px solid #eee;">';
       for (const d of docData.documents) {
-        html += infoRow('Document', `${d.typedoc || '?'} — ${d.idurba || ''}`);
-        if (d.etat) html += infoRow('Etat', d.etat);
-        if (d.datappro) html += infoRow('Date approbation', d.datappro);
+        html += infoRow('Document', d.type || '?');
+        if (d.titre) html += infoRow('Intitule', d.titre);
+        if (d.statut) html += infoRow('Statut', d.statut);
+        if (d.date) html += infoRow('Mise a jour', d.date);
         if (d.urlreg) {
           html += `<div style="padding:.3rem 0;">
             <a class="link-btn" href="${esc(d.urlreg)}" target="_blank" rel="noopener">
@@ -1209,10 +1274,12 @@ async function loadRisques(lon, lat, code_insee) {
         <span class="k">Risques identifies</span>
         <span class="v"><span class="status-badge badge-orange">${data.risques.length} risque(s)</span></span>
       </div>`;
+      html += '<div style="display:flex; flex-wrap:wrap; gap:.35rem; padding:.4rem 0;">';
       for (const r of data.risques) {
-        const lib = r.libelle_risque_jo || r.libelle || 'Risque non libelle';
-        html += `<div class="info-row"><span class="k">&#9888;</span><span class="v">${esc(lib)}</span></div>`;
+        const lib = (typeof r === 'string') ? r : (r.libelle || 'Risque');
+        html += `<span class="status-badge badge-orange" style="font-weight:600;">&#9888; ${esc(lib)}</span>`;
       }
+      html += '</div>';
     } else {
       html += `<div class="info-row">
         <span class="k">Risques identifies</span>
@@ -1245,6 +1312,72 @@ async function loadRisques(lon, lat, code_insee) {
     body.innerHTML = html;
   } catch (e) {
     body.innerHTML = '<div class="empty-msg">Erreur lors du chargement des risques.</div>';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PRIX DE L'IMMOBILIER (DVF)
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function loadDvf(lon, lat, code_insee) {
+  const body = document.getElementById('body-dvf');
+  if (!code_insee) { body.innerHTML = '<div class="empty-msg">Donnees indisponibles.</div>'; return; }
+  try {
+    const resp = await fetch(`/api/dvf?lon=${lon}&lat=${lat}&code_insee=${code_insee}`);
+    const data = await resp.json();
+
+    if (!data.disponible || !data.nb_mutations) {
+      body.innerHTML = '<div class="empty-msg">Aucune transaction DVF a proximite.</div>';
+      return;
+    }
+
+    const fmt = n => n.toLocaleString('fr-FR');
+    let html = '';
+
+    // Cartes prix au m2
+    const pm = data.prix_m2 || {};
+    const cards = [
+      ['Maison', pm.maison, '#16a34a'],
+      ['Appartement', pm.appartement, '#3b6cb7'],
+      ['Terrain', pm.terrain, '#ea580c'],
+    ].filter(c => c[1] && c[1].median);
+
+    if (cards.length) {
+      html += '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); gap:.5rem; margin-bottom:.6rem;">';
+      for (const [label, s, color] of cards) {
+        html += `<div style="background:var(--blue-light); border-radius:8px; padding:.5rem .6rem; text-align:center;">
+          <div style="font-size:.66rem; color:var(--muted); font-weight:600; text-transform:uppercase;">${label}</div>
+          <div style="font-size:1.05rem; font-weight:800; color:${color}; line-height:1.2;">${fmt(s.median)}<span style="font-size:.6rem; font-weight:600;"> €/m²</span></div>
+          <div style="font-size:.62rem; color:var(--muted);">${s.count} vente(s)</div>
+        </div>`;
+      }
+      html += '</div>';
+    }
+
+    html += infoRow('Transactions analysees', `${data.nb_mutations} dans un rayon de ${data.rayon_m} m`);
+
+    // Ventes recentes
+    const ventes = data.ventes_recentes || [];
+    if (ventes.length) {
+      html += '<div style="margin-top:.5rem; font-size:.72rem; color:var(--muted); font-weight:700; text-transform:uppercase;">Ventes recentes</div>';
+      html += '<div style="margin-top:.3rem;">';
+      for (const v of ventes.slice(0, 6)) {
+        const surf = v.surface_bati ? `${v.surface_bati} m² bati`
+                   : (v.surface_terrain ? `${v.surface_terrain} m² terrain` : '');
+        const dateFr = v.date ? v.date.split('-').reverse().join('/') : '';
+        html += `<div class="info-row" style="align-items:flex-start;">
+          <span class="k" style="min-width:62px;">${dateFr}</span>
+          <span class="v"><strong>${fmt(v.valeur)} €</strong> &middot; ${esc(v.type)}${surf ? ' &middot; ' + surf : ''}</span>
+        </div>`;
+      }
+      html += '</div>';
+    }
+
+    html += `<div style="font-size:.66rem; color:var(--muted); margin-top:.5rem; line-height:1.4;">
+      Source : DVF / DGFiP (Etalab). Prix indicatifs des transactions reelles a proximite.</div>`;
+
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<div class="empty-msg">Erreur lors du chargement des prix.</div>';
   }
 }
 
@@ -1452,25 +1585,8 @@ function showOnMap(parcel) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   PDF DOWNLOAD
+   PDF DOWNLOAD — la carte est generee cote serveur (Plan IGN + contour)
    ═══════════════════════════════════════════════════════════════════════════ */
-async function captureMapImage() {
-  const mapEl = document.getElementById('map');
-  if (!mapEl || !leafMap || typeof html2canvas === 'undefined') return null;
-  try {
-    const canvas = await html2canvas(mapEl, {
-      useCORS: true,
-      allowTaint: true,
-      scale: 2,
-      logging: false,
-    });
-    return canvas.toDataURL('image/jpeg', 0.92);
-  } catch (e) {
-    console.warn('Map capture failed:', e);
-    return null;
-  }
-}
-
 async function downloadPDF() {
   if (!currentParcel) return;
   const btn = document.getElementById('btn-pdf');
@@ -1518,6 +1634,7 @@ async function downloadPDF() {
 function tryInitMap() {
   if (typeof L !== 'undefined') {
     initMap();
+    applyDeepLink();  // ouvre directement la parcelle si ?ref=... dans l'URL
   } else {
     // Leaflet still loading (defer) — retry quickly
     setTimeout(tryInitMap, 50);

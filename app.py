@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import io
 import re
+import csv
 import sys
 import json
+import math
+import time
 import base64
 import logging
+import statistics
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -279,6 +284,177 @@ def get_georisques_detail(lon: float, lat: float) -> dict:
     return result
 
 
+def flatten_risques(risques_commune: list) -> list[dict]:
+    """
+    Aplatit la structure GASPAR (commune -> risques_detail) en une liste
+    propre de risques par famille (codes a 2 chiffres), dedupliquee.
+    Retourne [{"libelle": str, "code": str}, ...].
+    """
+    familles: dict[str, str] = {}
+    sous_risques: dict[str, str] = {}
+    for commune in risques_commune or []:
+        for d in commune.get("risques_detail", []):
+            lib = (d.get("libelle_risque_long")
+                   or d.get("libelle_risque_jo")
+                   or d.get("libelle_risque") or "").strip()
+            code = str(d.get("num_risque", "")).strip()
+            if not lib:
+                continue
+            if len(code) <= 2:
+                familles.setdefault(code or lib, lib)
+            else:
+                sous_risques.setdefault(code, lib)
+    # Si aucune famille (cas rare), on retombe sur les sous-risques
+    source = familles if familles else sous_risques
+    out = []
+    seen = set()
+    for code, lib in source.items():
+        key = lib.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append({"libelle": lib, "code": code})
+    return out
+
+
+# ── DVF (Demandes de Valeurs Foncieres) — Etalab geo-dvf ─────────────────────
+
+DVF_BASE = "https://files.data.gouv.fr/geo-dvf/latest/csv"
+_DVF_CACHE: dict[str, tuple[float, list]] = {}
+_DVF_TTL = 86400  # 24 h
+
+
+def _dvf_communes(code_insee: str) -> list[str]:
+    """Etend les villes a arrondissements (Paris/Lyon/Marseille) vers leurs codes reels."""
+    if code_insee == "75056":  # Paris
+        return [f"751{n:02d}" for n in range(1, 21)]
+    if code_insee == "69123":  # Lyon
+        return [f"6938{n}" for n in range(1, 10)]
+    if code_insee == "13055":  # Marseille
+        return [f"132{n:02d}" for n in range(1, 17)]
+    return [code_insee]
+
+
+def get_dvf_commune(code_insee: str, years=("2024", "2023", "2022")) -> list:
+    """Telecharge les mutations DVF d'une commune (cache memoire 24 h)."""
+    if not code_insee:
+        return []
+    now = time.time()
+    cached = _DVF_CACHE.get(code_insee)
+    if cached and now - cached[0] < _DVF_TTL:
+        return cached[1]
+
+    # On ne conserve que les colonnes utiles -> memoire reduite (~75%)
+    keep = ("latitude", "longitude", "nature_mutation", "valeur_fonciere",
+            "type_local", "surface_reelle_bati", "surface_terrain",
+            "nature_culture", "id_mutation", "date_mutation")
+    rows: list[dict] = []
+    for insee in _dvf_communes(code_insee):
+        dept = insee[:3] if insee[:2] in ("97", "98") else insee[:2]
+        for year in years:
+            url = f"{DVF_BASE}/{year}/communes/{dept}/{insee}.csv"
+            try:
+                r = requests.get(url, timeout=25)
+                r.encoding = "utf-8"  # le CSV Etalab est en UTF-8
+                if r.ok and r.text and "," in r.text[:200]:
+                    reader = csv.DictReader(io.StringIO(r.text))
+                    for row in reader:
+                        rows.append({k: row.get(k) for k in keep})
+            except Exception:
+                pass
+    _DVF_CACHE[code_insee] = (now, rows)
+    return rows
+
+
+def _haversine(lat1, lon1, lat2, lon2) -> float:
+    """Distance en metres entre deux points WGS84."""
+    R = 6371000.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+         * math.sin(dlon / 2) ** 2)
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def dvf_stats(rows: list, lon: float, lat: float, radius_m: float = 800) -> dict:
+    """Filtre les mutations dans un rayon et calcule des statistiques de prix."""
+    nearby = []
+    for row in rows:
+        try:
+            rlat = float(row.get("latitude") or "")
+            rlon = float(row.get("longitude") or "")
+        except (ValueError, TypeError):
+            continue
+        d = _haversine(lat, lon, rlat, rlon)
+        if d <= radius_m:
+            nearby.append((d, row))
+    nearby.sort(key=lambda x: x[0])
+
+    def _f(v):
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return None
+
+    # Regroupement par type de bien
+    groupes = {"Maison": [], "Appartement": [], "Terrain": []}
+    ventes_recentes = []
+    seen_mut = set()
+    for d, row in nearby:
+        if row.get("nature_mutation") != "Vente":
+            continue
+        valeur = _f(row.get("valeur_fonciere"))
+        if not valeur or valeur < 1000:
+            continue
+        type_local = (row.get("type_local") or "").strip()
+        s_bati = _f(row.get("surface_reelle_bati"))
+        s_terr = _f(row.get("surface_terrain"))
+        nature_cult = (row.get("nature_culture") or "").strip()
+
+        # Prix au m2
+        if type_local in ("Maison", "Appartement") and s_bati and s_bati > 8:
+            groupes[type_local].append(valeur / s_bati)
+        elif not type_local and s_terr and s_terr > 30 and nature_cult in ("terre", "sols", "", "jardin"):
+            # Terrain nu
+            groupes["Terrain"].append(valeur / s_terr)
+
+        # Ventes recentes (dedupliquees par mutation)
+        mut_id = row.get("id_mutation")
+        if mut_id and mut_id not in seen_mut:
+            seen_mut.add(mut_id)
+            ventes_recentes.append({
+                "date": row.get("date_mutation", ""),
+                "type": type_local or ("Terrain" if s_terr else "Bien"),
+                "valeur": int(valeur),
+                "surface_bati": int(s_bati) if s_bati else None,
+                "surface_terrain": int(s_terr) if s_terr else None,
+                "distance": int(d),
+            })
+
+    def _resume(prix_list):
+        prix_list = [p for p in prix_list if 50 < p < 20000]
+        if not prix_list:
+            return None
+        return {
+            "median": int(statistics.median(prix_list)),
+            "min": int(min(prix_list)),
+            "max": int(max(prix_list)),
+            "count": len(prix_list),
+        }
+
+    ventes_recentes.sort(key=lambda v: v["date"], reverse=True)
+    return {
+        "rayon_m": int(radius_m),
+        "nb_mutations": len(seen_mut),
+        "prix_m2": {
+            "maison": _resume(groupes["Maison"]),
+            "appartement": _resume(groupes["Appartement"]),
+            "terrain": _resume(groupes["Terrain"]),
+        },
+        "ventes_recentes": ventes_recentes[:8],
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  GEOMETRY HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -473,6 +649,7 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
              patrimoine_info: list | None = None,
              all_prescriptions: list | None = None,
              risques_info: list | None = None,
+             dvf: dict | None = None,
              elevation: float | None = None,
              errial_url: str | None = None) -> io.BytesIO:
     _load_pdf_libs()
@@ -619,17 +796,20 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
         doc_rows = []
         for d in plu_docs:
             dp = d.get("properties", {})
-            typedoc = dp.get("typedoc", "?")
-            idurba = dp.get("idurba", "")
-            etat = dp.get("etat", "")
-            datappro = dp.get("datappro", "")
-            doc_rows.append(("Type", typedoc))
-            if idurba:
-                doc_rows.append(("Identifiant", idurba))
-            if etat:
-                doc_rows.append(("Etat", etat))
-            if datappro:
-                doc_rows.append(("Date d'approbation", datappro))
+            typedoc = dp.get("du_type") or dp.get("typedoc") or "?"
+            titre = dp.get("grid_title", "")
+            statut = dp.get("gpu_status", "")
+            ref = dp.get("grid_name") or dp.get("partition", "")
+            date = (dp.get("gpu_timestamp", "") or "")[:10]
+            doc_rows.append(("Type de document", typedoc))
+            if titre:
+                doc_rows.append(("Intitule", titre))
+            if statut:
+                doc_rows.append(("Statut", statut))
+            if ref:
+                doc_rows.append(("Reference", ref))
+            if date:
+                doc_rows.append(("Mise a jour GPU", date))
         story.append(_kv_table(doc_rows, avail_w))
     else:
         story.append(Paragraph("Aucun document d'urbanisme trouve.", small))
@@ -703,9 +883,12 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
     if risques_info:
         risk_rows = []
         for risque in risques_info:
-            lib = risque.get("libelle_risque_jo", risque.get("libelle", ""))
+            if isinstance(risque, dict):
+                lib = risque.get("libelle") or risque.get("libelle_risque_long") or ""
+            else:
+                lib = str(risque)
             if lib:
-                risk_rows.append(("Risque", lib))
+                risk_rows.append(("Risque recense", lib))
         if risk_rows:
             story.append(_kv_table(risk_rows, avail_w))
         else:
@@ -723,6 +906,57 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
             ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ]))
         story.append(ok_tbl)
+
+    # ── Prix de l'immobilier (DVF)
+    if dvf and dvf.get("nb_mutations"):
+        story += [Spacer(1, 0.2 * cm),
+                  _section_header("Prix de l'immobilier — DVF (rayon 800 m)", avail_w)]
+        pm = dvf.get("prix_m2", {})
+        dvf_rows = []
+        labels = [("maison", "Maison (prix / m² bati)"),
+                  ("appartement", "Appartement (prix / m² bati)"),
+                  ("terrain", "Terrain (prix / m²)")]
+        for key, lab in labels:
+            s = pm.get(key)
+            if s and s.get("median"):
+                med = f"{s['median']:,}".replace(",", " ")
+                dvf_rows.append((lab, f"{med} €/m²  ({s['count']} vente(s))"))
+        dvf_rows.append(("Mutations analysees", str(dvf.get("nb_mutations", 0))))
+        story.append(_kv_table(dvf_rows, avail_w))
+
+        ventes = dvf.get("ventes_recentes", [])[:5]
+        if ventes:
+            story.append(Spacer(1, 0.15 * cm))
+            th = ParagraphStyle("th", fontSize=8, fontName="Helvetica-Bold",
+                                textColor=BLUE, leading=10)
+            td = ParagraphStyle("td", fontSize=8, fontName="Helvetica",
+                                textColor=TEXT_DARK, leading=10)
+            td_r = ParagraphStyle("tdr", fontSize=8, fontName="Helvetica-Bold",
+                                  textColor=TEXT_DARK, leading=10, alignment=2)
+            data = [[Paragraph("Date", th), Paragraph("Type", th),
+                     Paragraph("Surface", th), Paragraph("Prix", th)]]
+            for v in ventes:
+                surf = (f"{v['surface_bati']} m² bati" if v.get("surface_bati")
+                        else (f"{v['surface_terrain']} m² terr." if v.get("surface_terrain") else "—"))
+                prix = f"{v['valeur']:,}".replace(",", " ") + " €"
+                data.append([Paragraph(v.get("date", ""), td),
+                             Paragraph(v.get("type", ""), td),
+                             Paragraph(surf, td),
+                             Paragraph(prix, td_r)])
+            vt = Table(data, colWidths=[avail_w * 0.22, avail_w * 0.30,
+                                        avail_w * 0.26, avail_w * 0.22])
+            vt.setStyle(TableStyle([
+                ("BACKGROUND",   (0, 0), (-1, 0), LIGHT_BLUE),
+                ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING",  (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING",   (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("LINEBELOW",    (0, 0), (-1, -2), 0.4, GREY_LINE),
+            ]))
+            story.append(vt)
+        story.append(Paragraph(
+            "Source : DVF / DGFiP (Etalab) — Transactions reelles, prix indicatifs", legend))
 
     # ── Liens utiles
     story += [Spacer(1, 0.2 * cm), _section_header("Liens utiles", avail_w)]
@@ -747,9 +981,13 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
     link_val_style = ParagraphStyle("lv", fontSize=7.5, textColor=ACCENT, leading=10)
     link_data = []
     for k, v in links_rows:
+        # Echapper & pour le parser XML de ReportLab (sinon &lat= casse le lien)
+        v_xml = v.replace("&", "&amp;")
+        disp = v[:80] + ("..." if len(v) > 80 else "")
+        disp_xml = disp.replace("&", "&amp;")
         link_data.append([
             Paragraph(k, link_key_style),
-            Paragraph(f'<a href="{v}" color="#2563eb">{v[:80]}{"..." if len(v) > 80 else ""}</a>', link_val_style),
+            Paragraph(f'<a href="{v_xml}" color="#2563eb">{disp_xml}</a>', link_val_style),
         ])
     link_tbl = Table(link_data, colWidths=[avail_w * 0.30, avail_w * 0.70])
     link_style_cmds = [
@@ -970,15 +1208,16 @@ def api_plu_document():
         for d in docs:
             p = d.get("properties", {})
             result.append({
-                "idurba": p.get("idurba", ""),
-                "typedoc": p.get("typedoc", ""),
-                "etat": p.get("etat", ""),
-                "nomplan": p.get("nomplan", ""),
-                "urlplan": p.get("urlplan", ""),
-                "nomreg": p.get("nomreg", ""),
-                "urlreg": p.get("urlreg", ""),
-                "datappro": p.get("datappro", ""),
-                "datefin": p.get("datefin", ""),
+                # Champs reels renvoyes par l'API GPU /document
+                "type": p.get("du_type", p.get("typedoc", "")),
+                "titre": p.get("grid_title", ""),
+                "nom": p.get("name", ""),
+                "statut": p.get("gpu_status", ""),
+                "reference": p.get("grid_name", p.get("partition", "")),
+                "date": (p.get("gpu_timestamp", "") or "")[:10],
+                # Compat ascendante
+                "typedoc": p.get("du_type", ""),
+                "idurba": p.get("grid_name", ""),
             })
         return jsonify({"documents": result})
     except Exception as e:
@@ -1039,13 +1278,37 @@ def api_risques():
     if code_insee:
         risques_commune = get_risques_commune(code_insee)
 
+    # Liste propre des risques par famille
+    risques = flatten_risques(risques_commune)
+
     # Lien Georisques : page principale d'etat des risques
     georisques_url = "https://errial.georisques.gouv.fr/"
 
     return jsonify({
-        "risques": risques_commune,
+        "risques": risques,
         "errial_url": georisques_url,
     })
+
+
+# ── DVF (prix de l'immobilier) ───────────────────────────────────────────────
+
+@app.route("/api/dvf")
+def api_dvf():
+    lon = request.args.get("lon", type=float)
+    lat = request.args.get("lat", type=float)
+    code_insee = request.args.get("code_insee", "")
+    radius = request.args.get("radius", default=800, type=int)
+    if lon is None or lat is None or not code_insee:
+        return jsonify({"error": "lon/lat/code_insee requis"}), 400
+    try:
+        rows = get_dvf_commune(code_insee)
+        if not rows:
+            return jsonify({"disponible": False, "prix_m2": {}, "ventes_recentes": []})
+        stats = dvf_stats(rows, lon, lat, radius_m=radius)
+        stats["disponible"] = stats["nb_mutations"] > 0
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({"disponible": False, "error": str(e)}), 200
 
 
 # ── PDF cadastral enrichi ────────────────────────────────────────────────────
@@ -1065,37 +1328,36 @@ def api_pdf():
         clon, clat = centroid_from_geometry(geom)
         code_insee = parcel.get("properties", {}).get("code_insee", "")
 
-        elev_data = get_elevation(clon, clat)
-        elevation = elev_data.get("z") if elev_data else None
+        def _safe(fn, *args, default=None):
+            try:
+                return fn(*args)
+            except Exception:
+                return default
 
-        zonage_list = []
-        plu_docs_list = []
-        patrimoine_list = []
-        all_prescs_list = []
-        risques_list = []
-        try:
-            zonage_list = get_zonage(clon, clat)
-        except Exception:
-            pass
-        try:
-            plu_docs_list = get_plu_document(clon, clat)
-        except Exception:
-            pass
-        try:
-            prescs = get_prescriptions(clon, clat)
-            all_prescs_list = prescs
-            patrimoine_list = [
-                p for p in prescs
-                if p.get("properties", {}).get("typepsc", "").startswith("AC")
-                or p.get("properties", {}).get("typepsc", "").startswith("05")
-            ]
-        except Exception:
-            pass
-        try:
-            if code_insee:
-                risques_list = get_risques_commune(code_insee)
-        except Exception:
-            pass
+        # Tous les appels externes en parallele (gain majeur sur Render free tier)
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            f_elev = ex.submit(_safe, get_elevation, clon, clat)
+            f_zon = ex.submit(_safe, get_zonage, clon, clat, default=[])
+            f_doc = ex.submit(_safe, get_plu_document, clon, clat, default=[])
+            f_presc = ex.submit(_safe, get_prescriptions, clon, clat, default=[])
+            f_risq = ex.submit(_safe, get_risques_commune, code_insee, default=[]) if code_insee else None
+            f_dvf = ex.submit(_safe, get_dvf_commune, code_insee, default=[]) if code_insee else None
+
+            elev_data = f_elev.result()
+            zonage_list = f_zon.result() or []
+            plu_docs_list = f_doc.result() or []
+            all_prescs_list = f_presc.result() or []
+            risques_commune = (f_risq.result() if f_risq else []) or []
+            dvf_rows = (f_dvf.result() if f_dvf else []) or []
+
+        elevation = elev_data.get("z") if elev_data else None
+        patrimoine_list = [
+            p for p in all_prescs_list
+            if p.get("properties", {}).get("typepsc", "").startswith("AC")
+            or p.get("properties", {}).get("typepsc", "").startswith("05")
+        ]
+        risques_flat = flatten_risques(risques_commune)
+        dvf = dvf_stats(dvf_rows, clon, clat) if dvf_rows else None
 
         errial_url = "https://errial.georisques.gouv.fr/"
 
@@ -1105,7 +1367,8 @@ def api_pdf():
             plu_docs=plu_docs_list,
             patrimoine_info=patrimoine_list,
             all_prescriptions=all_prescs_list,
-            risques_info=risques_list,
+            risques_info=risques_flat,
+            dvf=dvf,
             elevation=elevation,
             errial_url=errial_url,
         )
