@@ -9,6 +9,7 @@ import io
 import re
 import sys
 import json
+import math
 import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
@@ -309,6 +310,109 @@ def flatten_risques(risques_commune: list) -> list[dict]:
             seen.add(key)
             out.append({"libelle": lib, "code": code})
     return out
+
+
+# ── cadastre.gouv.fr — extrait de plan officiel (PDF) ────────────────────────
+
+CADASTRE_GOUV = "https://www.cadastre.gouv.fr/scpc"
+_CAD_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+           "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+
+
+def _strip_accents(s: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", s)
+                   if unicodedata.category(c) != "Mn")
+
+
+def get_extrait_cadastral(code_insee: str, section: str, numero: str,
+                          prefixe: str = "000", ville: str = "",
+                          parcel_size_m: float = 0) -> bytes | None:
+    """
+    Telecharge l'extrait de plan cadastral officiel (PDF DGFiP) depuis
+    cadastre.gouv.fr en rejouant le parcours du site :
+      1. accueil.do            -> session JSESSIONID + token CSRF
+      2. rechercherParReferenceCadastrale.do -> identifiants parcelle/feuille
+         (avec desambiguisation codeCommune si plusieurs communes homonymes)
+      3. afficherCarteParcelle.do -> centre de la parcelle (Lambert CC)
+      4. imprimerExtraitCadastralNonNormalise.do -> PDF
+    """
+    s = requests.Session()
+    s.headers["User-Agent"] = _CAD_UA
+
+    # 1. Session + CSRF
+    r = s.get(f"{CADASTRE_GOUV}/accueil.do", timeout=20)
+    m = re.search(r"CSRF_TOKEN=([A-Z0-9-]+)", r.text)
+    if not m:
+        return None
+    csrf = m.group(1)
+
+    # 2. Recherche par reference cadastrale
+    dep = code_insee[:3] if code_insee[:2] in ("97", "98") else "0" + code_insee[:2]
+    if not ville:
+        ville = commune_name(code_insee)
+    if not ville:
+        return None
+    ville = _strip_accents(ville).upper()
+
+    search_url = f"{CADASTRE_GOUV}/rechercherParReferenceCadastrale.do?CSRF_TOKEN={csrf}"
+    data = {
+        "rechercheType": "1",
+        "codeDepartement": dep,
+        "ville": ville,
+        "codePostal": "",
+        "prefixeParcelle": (prefixe or "000").zfill(3),
+        "sectionLibelle": section.strip().upper(),
+        "numeroParcelle": str(numero).zfill(4),
+        "prefixeFeuille": "000",
+        "feuilleLibelle": "",
+        "nbResultatParPage": "10",
+    }
+    r = s.post(search_url, data=data, timeout=20)
+    link_re = r"afficherCarteParcelle\.do\?[^\"']*?p=([A-Z0-9]+)&(?:amp;)?f=([A-Z0-9]+)"
+    links = re.findall(link_re, r.text)
+
+    if not links:
+        # Desambiguisation : plusieurs communes homonymes -> select codeCommune
+        # dont la valeur se termine par le code commune INSEE sur 4 chiffres
+        # (ex : 42097 -> "0097" -> value "I0097").
+        part = code_insee[2:].zfill(4)
+        options = re.findall(r'<option value="([A-Z][0-9A-Z]{4})"', r.text)
+        code_commune = next((o for o in options if o[-4:] == part), None)
+        if not code_commune:
+            return None
+        data["codeCommune"] = code_commune
+        r = s.post(search_url, data=data, timeout=20)
+        links = re.findall(link_re, r.text)
+        if not links:
+            return None
+
+    p_id, f_id = links[0]
+
+    # 3. Carte de la parcelle -> coordonnees du centre (projection de la feuille)
+    r = s.get(f"{CADASTRE_GOUV}/afficherCarteParcelle.do",
+              params={"CSRF_TOKEN": csrf, "p": p_id, "f": f_id}, timeout=20)
+    m = re.search(r"Point\(([0-9.]+),([0-9.]+)\)", r.text)
+    if not m:
+        return None
+    x, y = float(m.group(1)), float(m.group(2))
+
+    # 4. Extrait PDF ~1/500 (bbox elargie si la parcelle est plus grande)
+    w = max(95.0, parcel_size_m * 1.4)
+    h = w * 675.0 / 700.0
+    bbox = f"{x - w/2},{y - h/2},{x + w/2},{y + h/2}"
+    r = s.post(
+        f"{CADASTRE_GOUV}/imprimerExtraitCadastralNonNormalise.do?CSRF_TOKEN={csrf}",
+        data={
+            "WIDTH": "700", "HEIGHT": "675", "MAPBBOX": bbox,
+            "SLD_BODY": "", "RFV_REF": f_id,
+            "DRAPEAU": "false", "SELECTION": p_id,
+        },
+        timeout=40,
+    )
+    if r.ok and r.headers.get("content-type", "").startswith("application/pdf"):
+        return r.content
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1067,6 +1171,62 @@ def api_risques():
         "risques": risques,
         "errial_url": georisques_url,
     })
+
+
+# ── Extrait de plan officiel cadastre.gouv.fr ────────────────────────────────
+
+@app.route("/api/extrait-cadastral", methods=["POST"])
+def api_extrait_cadastral():
+    body   = request.get_json(force=True)
+    parcel = body.get("parcel")
+    if not parcel:
+        return jsonify({"error": "Donnees de parcelle manquantes"}), 400
+
+    props = parcel.get("properties", {})
+    geom  = parcel.get("geometry", {})
+    code_insee = props.get("code_insee", "")
+    section    = props.get("section", "")
+    numero     = props.get("numero", "")
+    prefixe    = props.get("com_abs") or "000"
+    ville      = props.get("nom_com", "")
+    if not (code_insee and section and numero):
+        return jsonify({"error": "Reference cadastrale incomplete"}), 400
+
+    # Paris/Lyon/Marseille : cadastre.gouv.fr travaille par arrondissement
+    # (ex : Lyon 2e = 69382), fourni par l'IGN dans code_arr.
+    code_arr = str(props.get("code_arr") or "").strip()
+    if code_arr and code_arr != "000":
+        code_insee = code_insee[:2] + code_arr.zfill(3)
+
+    # Taille de la parcelle en metres (pour adapter l'echelle de l'extrait)
+    parcel_size_m = 0.0
+    try:
+        b = bbox_from_geometry(geom)
+        clat = (b[1] + b[3]) / 2
+        parcel_size_m = max(
+            (b[2] - b[0]) * 111320.0 * math.cos(math.radians(clat)),
+            (b[3] - b[1]) * 110540.0,
+        )
+    except Exception:
+        pass
+
+    try:
+        pdf = get_extrait_cadastral(code_insee, section, numero,
+                                    prefixe=prefixe, ville=ville,
+                                    parcel_size_m=parcel_size_m)
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "cadastre.gouv.fr ne repond pas, reessayez"}), 504
+    except Exception as e:
+        logger.warning("extrait cadastral: %s", e)
+        pdf = None
+
+    if not pdf:
+        return jsonify({"error": "Extrait indisponible pour cette parcelle "
+                                 "sur cadastre.gouv.fr"}), 502
+
+    fname = f"extrait_cadastre_{code_insee}_{section}_{numero}.pdf"
+    return send_file(io.BytesIO(pdf), mimetype="application/pdf",
+                     as_attachment=True, download_name=fname)
 
 
 # ── PDF cadastral enrichi ────────────────────────────────────────────────────

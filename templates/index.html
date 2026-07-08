@@ -552,6 +552,12 @@
           </button>
         </div>
         <div class="download-row" style="margin-top:.5rem;">
+          <button class="download-btn" id="btn-extrait" onclick="downloadExtrait()"
+                  style="background:var(--blue);">
+            Extrait du plan officiel (cadastre.gouv.fr)
+          </button>
+        </div>
+        <div class="download-row" style="margin-top:.5rem;">
           <button class="link-btn" style="border:none; cursor:pointer; flex:1;" id="btn-share" onclick="shareLink()">
             Copier le lien de la fiche
           </button>
@@ -1590,6 +1596,46 @@ async function downloadPDF() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Telecharger la fiche PDF';
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EXTRAIT DE PLAN OFFICIEL — cadastre.gouv.fr
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function downloadExtrait() {
+  if (!currentParcel) return;
+  const btn = document.getElementById('btn-extrait');
+  btn.disabled = true;
+  btn.textContent = 'Interrogation de cadastre.gouv.fr...';
+
+  try {
+    const resp = await fetch('/api/extrait-cadastral', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parcel: currentParcel }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showError(err.error || 'Extrait indisponible.');
+      return;
+    }
+
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const p = currentParcel.properties;
+    a.download = `extrait_cadastre_${p.code_insee}_${p.section}_${p.numero}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showError('Erreur lors du telechargement de l\'extrait.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Extrait du plan officiel (cadastre.gouv.fr)';
   }
 }
 
