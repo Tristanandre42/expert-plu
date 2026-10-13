@@ -250,10 +250,58 @@
       color: var(--muted);
     }
     .info-header.open .arrow { transform: rotate(90deg); }
-    .info-body {
-      display: none; padding: 0 1.2rem .8rem;
+    /* Ouverture/fermeture douce (grille 0fr <-> 1fr) */
+    .info-wrap {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows .3s cubic-bezier(.4,0,.2,1);
     }
-    .info-body.open { display: block; }
+    .info-wrap.open { grid-template-rows: 1fr; }
+    .info-body {
+      overflow: hidden; min-height: 0;
+      padding: 0 1.2rem; opacity: 0;
+      transition: opacity .25s ease .04s, padding .3s ease;
+    }
+    .info-wrap.open > .info-body { opacity: 1; padding: .1rem 1.2rem .85rem; }
+
+    /* ── Vue d'ensemble (bandeau recap) ── */
+    .summary-card {
+      margin: .9rem 1.2rem .55rem;
+      padding: .85rem 1rem;
+      background: linear-gradient(135deg, #f7f9fe, #eaf0fb);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 1px 4px rgba(26,58,107,.07);
+      animation: fadeUp .4s cubic-bezier(.2,.7,.3,1) both;
+    }
+    .summary-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .5rem; }
+    .summary-commune { font-size: 1.12rem; font-weight: 800; color: var(--blue); line-height: 1.12; letter-spacing: -.3px; }
+    .summary-ref { font-family: 'SF Mono','Consolas',monospace; font-size: .76rem; color: var(--muted); margin-top: .22rem; letter-spacing: .4px; }
+    .summary-chips { display: flex; gap: .3rem; flex-wrap: wrap; justify-content: flex-end; }
+    .summary-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: .8rem; }
+    .stat { background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: .5rem .35rem; text-align: center; }
+    .stat-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); font-weight: 700; }
+    .stat-val { font-size: .92rem; font-weight: 800; color: var(--text); margin-top: .22rem; line-height: 1.15; min-height: 1.15rem; }
+    .stat-val .status-badge { font-size: .82rem; }
+    .stat-sub { font-size: .62rem; color: var(--muted); font-weight: 600; }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+    /* ── Skeletons (shimmer) ── */
+    @keyframes shimmer { 0% { background-position: -250px 0; } 100% { background-position: 250px 0; } }
+    .shimmer-text, .skel-row {
+      background: #e5ebf5;
+      background-image: linear-gradient(90deg, #e5ebf5 0, #f2f6fc 60px, #e5ebf5 120px);
+      background-size: 300px 100%;
+      animation: shimmer 1.1s linear infinite;
+      border-radius: 5px;
+    }
+    .shimmer-text { display: inline-block; width: 46px; height: .8rem; vertical-align: middle; }
+    .skel-row { height: .72rem; margin: .5rem 0; }
+    .skel-row.w90 { width: 90%; } .skel-row.w70 { width: 70%; } .skel-row.w50 { width: 50%; }
+
+    /* ── Zone actions principales ── */
+    .actions-bar { padding: .2rem 1.2rem .9rem; border-bottom: 1px solid var(--border); }
 
     .info-row {
       display: flex; justify-content: space-between;
@@ -472,98 +520,124 @@
     <!-- Results sections -->
     <div class="results-section" id="results-section" style="display:none;">
 
+      <!-- Vue d'ensemble -->
+      <div class="summary-card" id="summary-card">
+        <div class="summary-head">
+          <div style="min-width:0;">
+            <div class="summary-commune" id="sum-commune">—</div>
+            <div class="summary-ref" id="sum-ref">—</div>
+          </div>
+          <div class="summary-chips" id="sum-chips"></div>
+        </div>
+        <div class="summary-stats">
+          <div class="stat">
+            <div class="stat-label">Surface</div>
+            <div class="stat-val" id="sum-surface">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Zone PLU</div>
+            <div class="stat-val" id="sum-zone"><span class="shimmer-text"></span></div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Altitude</div>
+            <div class="stat-val" id="sum-alt"><span class="shimmer-text"></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions principales -->
+      <div class="actions-bar">
+        <div class="download-row">
+          <button class="download-btn" id="btn-pdf" onclick="downloadPDF()" style="flex:1;">
+            Telecharger la fiche PDF
+          </button>
+        </div>
+        <div class="download-row" style="margin-top:.5rem;">
+          <button class="download-btn" id="btn-extrait" onclick="downloadExtrait()"
+                  style="background:var(--blue); flex:1;">
+            Extrait du plan officiel (cadastre.gouv.fr)
+          </button>
+        </div>
+        <div class="download-row" style="margin-top:.5rem;">
+          <button class="link-btn" style="border:none; cursor:pointer; flex:1; justify-content:center;" id="btn-share" onclick="shareLink()">
+            Copier le lien de la fiche
+          </button>
+        </div>
+        <span id="share-confirm" style="font-size:.7rem; color:var(--green); display:none;">Lien copie !</span>
+      </div>
+
       <!-- 1. Cadastre -->
       <div class="info-section" id="sec-cadastre">
-        <div class="info-header open" onclick="toggleSection('cadastre')">
+        <div class="info-header" onclick="toggleSection('cadastre')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
           </svg>
           Cadastre
           <span class="arrow">&#9654;</span>
         </div>
-        <div class="info-body open" id="body-cadastre"></div>
+        <div class="info-wrap" id="wrap-cadastre"><div class="info-body" id="body-cadastre"></div></div>
       </div>
 
       <!-- 2. Urbanisme / PLU -->
       <div class="info-section" id="sec-urbanisme">
-        <div class="info-header open" onclick="toggleSection('urbanisme')">
+        <div class="info-header" onclick="toggleSection('urbanisme')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M3 21h18M9 8h1M9 12h1M9 16h1M14 8h1M14 12h1M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16"/>
           </svg>
           Urbanisme &amp; PLU
           <span class="arrow">&#9654;</span>
         </div>
-        <div class="info-body open" id="body-urbanisme"></div>
+        <div class="info-wrap" id="wrap-urbanisme"><div class="info-body" id="body-urbanisme"></div></div>
       </div>
 
       <!-- 3. Patrimoine / ABF -->
       <div class="info-section" id="sec-patrimoine">
-        <div class="info-header open" onclick="toggleSection('patrimoine')">
+        <div class="info-header" onclick="toggleSection('patrimoine')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
           </svg>
           Patrimoine &amp; ABF
           <span class="arrow">&#9654;</span>
         </div>
-        <div class="info-body open" id="body-patrimoine"></div>
+        <div class="info-wrap" id="wrap-patrimoine"><div class="info-body" id="body-patrimoine"></div></div>
       </div>
 
       <!-- 4. Risques -->
       <div class="info-section" id="sec-risques">
-        <div class="info-header open" onclick="toggleSection('risques')">
+        <div class="info-header" onclick="toggleSection('risques')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>
           </svg>
           Risques &amp; Georisques
           <span class="arrow">&#9654;</span>
         </div>
-        <div class="info-body open" id="body-risques"></div>
+        <div class="info-wrap" id="wrap-risques"><div class="info-body" id="body-risques"></div></div>
       </div>
 
       <!-- 5. Valeurs foncieres (DVF) -->
       <div class="info-section" id="sec-dvf">
-        <div class="info-header open" onclick="toggleSection('dvf')">
+        <div class="info-header" onclick="toggleSection('dvf')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
           </svg>
           Valeurs foncieres (DVF)
           <span class="arrow">&#9654;</span>
         </div>
-        <div class="info-body open" id="body-dvf"></div>
+        <div class="info-wrap" id="wrap-dvf"><div class="info-body" id="body-dvf"></div></div>
       </div>
 
       <!-- 6. Saint-Etienne Metropole -->
       <div class="info-section" id="sec-sem" style="display:none;">
-        <div class="info-header open" onclick="toggleSection('sem')">
+        <div class="info-header" onclick="toggleSection('sem')">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/>
           </svg>
           Saint-Etienne Metropole
           <span class="arrow">&#9654;</span>
         </div>
-        <div class="info-body open" id="body-sem"></div>
+        <div class="info-wrap" id="wrap-sem"><div class="info-body" id="body-sem"></div></div>
       </div>
 
-      <!-- PDF Download -->
-      <div style="padding: .8rem 1.2rem;">
-        <div class="download-row">
-          <button class="download-btn" id="btn-pdf" onclick="downloadPDF()">
-            Telecharger la fiche PDF
-          </button>
-        </div>
-        <div class="download-row" style="margin-top:.5rem;">
-          <button class="download-btn" id="btn-extrait" onclick="downloadExtrait()"
-                  style="background:var(--blue);">
-            Extrait du plan officiel (cadastre.gouv.fr)
-          </button>
-        </div>
-        <div class="download-row" style="margin-top:.5rem;">
-          <button class="link-btn" style="border:none; cursor:pointer; flex:1;" id="btn-share" onclick="shareLink()">
-            Copier le lien de la fiche
-          </button>
-        </div>
-        <span id="share-confirm" style="font-size:.7rem; color:var(--green); display:none;">Lien copie !</span>
-      </div>
     </div>
   </div>
 
@@ -622,18 +696,21 @@ function switchTab(tab) {
 /* ═══════════════════════════════════════════════════════════════════════════
    AUTOCOMPLETE (BAN)
    ═══════════════════════════════════════════════════════════════════════════ */
+let acReqId = 0;
 function onAddressInput() {
   clearTimeout(acTimer);
   const q = document.getElementById('input-address').value.trim();
   if (q.length < 3) { closeAC(); return; }
-  acTimer = setTimeout(() => fetchAutocomplete(q), 250);
+  acTimer = setTimeout(() => fetchAutocomplete(q), 160);
 }
 
 async function fetchAutocomplete(q) {
+  const reqId = ++acReqId;
   try {
     const resp = await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`);
     const data = await resp.json();
-    if (!data.length) { closeAC(); return; }
+    if (reqId !== acReqId) return;                 // ignore une reponse devancee
+    if (!Array.isArray(data) || !data.length) { closeAC(); return; }
     acItems = data;
     acIndex = -1;
     const dd = document.getElementById('ac-dropdown');
@@ -644,7 +721,7 @@ async function fetchAutocomplete(q) {
       </div>`
     ).join('');
     dd.classList.add('open');
-  } catch(e) { closeAC(); }
+  } catch(e) { if (reqId === acReqId) closeAC(); }
 }
 
 function onAddressKeydown(e) {
@@ -867,17 +944,40 @@ function fmtArea(m2) {
   return `${Number(m2).toLocaleString('fr-FR')} m\u00b2  (${ha} ha)`;
 }
 function loadingHTML() {
-  return '<div class="section-loading"><span class="mini-spin"></span> Chargement...</div>';
+  return '<div class="skel-row w90"></div><div class="skel-row w70"></div><div class="skel-row w50"></div>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    SECTION TOGGLE
    ═══════════════════════════════════════════════════════════════════════════ */
 function toggleSection(name) {
-  const header = document.querySelector(`#sec-${name} .info-header`);
-  const body = document.getElementById(`body-${name}`);
-  header.classList.toggle('open');
-  body.classList.toggle('open');
+  document.querySelector(`#sec-${name} .info-header`).classList.toggle('open');
+  document.getElementById(`wrap-${name}`).classList.toggle('open');
+}
+
+/* Vue d'ensemble (bandeau recap) */
+function setSummary(parcel) {
+  const p = parcel.properties || {};
+  document.getElementById('sum-commune').textContent = p.nom_com || '—';
+  document.getElementById('sum-ref').textContent = `${p.code_insee || ''} · ${p.section || ''} · ${p.numero || ''}`;
+  document.getElementById('sum-surface').innerHTML = (p.contenance != null)
+    ? `${Number(p.contenance).toLocaleString('fr-FR')}<span class="stat-sub"> m²</span>`
+    : 'N/A';
+  document.getElementById('sum-zone').innerHTML = '<span class="shimmer-text"></span>';
+  document.getElementById('sum-alt').innerHTML = '<span class="shimmer-text"></span>';
+  document.getElementById('sum-chips').innerHTML = '';
+}
+function setSummaryField(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+function addSummaryChip(cls, label) {
+  const c = document.getElementById('sum-chips');
+  if (!c) return;
+  const s = document.createElement('span');
+  s.className = `status-badge ${cls}`;
+  s.textContent = label;
+  c.appendChild(s);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1001,7 +1101,12 @@ function onParcelFound(parcel, addr, lon, lat) {
     history.replaceState(null, '', `?ref=${pr.code_insee}-${pr.section}-${pr.numero}`);
   }
 
-  document.getElementById('results-section').style.display = 'block';
+  const resultsEl = document.getElementById('results-section');
+  resultsEl.style.display = 'block';
+  resultsEl.scrollTop = 0;
+
+  // 0. Vue d'ensemble (immediate)
+  setSummary(parcel);
 
   // 1. Cadastre (immediate)
   displayCadastre(parcel, addr);
@@ -1112,11 +1217,14 @@ async function loadElevation(lon, lat) {
     const data = await resp.json();
     if (data.elevation != null) {
       document.getElementById('gps-alt').textContent = `${data.elevation.toFixed(1)} m`;
+      setSummaryField('sum-alt', `${Math.round(data.elevation)}<span class="stat-sub"> m</span>`);
     } else {
       document.getElementById('gps-alt').textContent = 'N/D';
+      setSummaryField('sum-alt', '<span class="stat-sub">N/D</span>');
     }
   } catch {
     document.getElementById('gps-alt').textContent = 'Erreur';
+    setSummaryField('sum-alt', '<span class="stat-sub">N/D</span>');
   }
 
   // Also add GPS to cadastre section
@@ -1177,6 +1285,14 @@ async function loadUrbanisme(lon, lat) {
       html += '<div class="empty-msg">Aucun zonage PLU trouve pour cette parcelle.</div>';
     }
 
+    // Vue d'ensemble : zone PLU
+    if (zonageData.zones && zonageData.zones.length > 0) {
+      const z0 = zonageData.zones[0];
+      setSummaryField('sum-zone', `<span class="status-badge ${getZoneClass(z0.typezone)}">${esc(z0.typezone || '?')}</span>`);
+    } else {
+      setSummaryField('sum-zone', '<span class="stat-sub">Aucune</span>');
+    }
+
     // PLU Document
     if (docData.documents && docData.documents.length > 0) {
       html += '<div style="margin-top:.5rem; padding-top:.5rem; border-top:1px solid #eee;">';
@@ -1217,6 +1333,7 @@ async function loadUrbanisme(lon, lat) {
     body.innerHTML = html || '<div class="empty-msg">Aucune donnee d\'urbanisme disponible.</div>';
   } catch (e) {
     body.innerHTML = `<div class="empty-msg">Erreur lors du chargement des donnees d'urbanisme.</div>`;
+    setSummaryField('sum-zone', '<span class="stat-sub">N/D</span>');
   }
 }
 
@@ -1242,6 +1359,7 @@ async function loadPatrimoine(lon, lat) {
     let html = '';
 
     if (data.is_abf) {
+      addSummaryChip('badge-red', 'ABF');
       html += `<div class="info-row">
         <span class="k">Secteur protege</span>
         <span class="v"><span class="status-badge badge-red">OUI — Perimetre ABF</span></span>
@@ -1376,6 +1494,7 @@ function loadSEM(code_insee) {
   }
 
   section.style.display = 'block';
+  addSummaryChip('badge-green', 'SEM');
   const pp = currentParcel?.properties || {};
   const ref = `${pp.section || ''}${pp.numero || ''}`;
   const commune = pp.nom_com || '';
@@ -1661,6 +1780,16 @@ if (document.readyState === 'complete') {
 // Close autocomplete on outside click
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.input-wrap')) { closeAC(); closeCommuneAC(); }
+});
+
+// Raccourci "/" : focus direct sur le champ de recherche
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName)) {
+    e.preventDefault();
+    const id = activeTab === 'address' ? 'input-address' : 'input-commune';
+    const el = document.getElementById(id);
+    if (el) { el.focus(); el.select(); }
+  }
 });
 </script>
 </body>
