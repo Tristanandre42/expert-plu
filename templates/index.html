@@ -250,19 +250,11 @@
       color: var(--muted);
     }
     .info-header.open .arrow { transform: rotate(90deg); }
-    /* Ouverture/fermeture douce (grille 0fr <-> 1fr) */
-    .info-wrap {
-      display: grid;
-      grid-template-rows: 0fr;
-      transition: grid-template-rows .3s cubic-bezier(.4,0,.2,1);
-    }
-    .info-wrap.open { grid-template-rows: 1fr; }
-    .info-body {
-      overflow: hidden; min-height: 0;
-      padding: 0 1.2rem; opacity: 0;
-      transition: opacity .25s ease .04s, padding .3s ease;
-    }
-    .info-wrap.open > .info-body { opacity: 1; padding: .1rem 1.2rem .85rem; }
+    /* Ouverture/fermeture : display + entree en fondu (fiable, jamais rogne) */
+    .info-wrap { display: none; }
+    .info-wrap.open { display: block; animation: sectionIn .28s ease both; }
+    @keyframes sectionIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+    .info-body { padding: .1rem 1.2rem .85rem; }
 
     /* ── Vue d'ensemble (bandeau recap) ── */
     .summary-card {
