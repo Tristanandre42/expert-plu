@@ -1060,6 +1060,227 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
 #  ROUTES
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  FICHE INFORMATION DETAILLEE D'UNE PARCELLE (Geoportail de l'Urbanisme) -> PDF
+# ═══════════════════════════════════════════════════════════════════════════════
+
+GPU_SITE = "https://www.geoportail-urbanisme.gouv.fr"
+
+
+def gpu_parcel_id(props: dict) -> str:
+    """departement_commune_arrondissement_communeAbsorbee_section_numero."""
+    return "_".join([
+        str(props.get("code_dep") or ""), str(props.get("code_com") or ""),
+        str(props.get("code_arr") or "000"), str(props.get("com_abs") or "000"),
+        str(props.get("section") or ""), str(props.get("numero") or ""),
+    ])
+
+
+def get_fiche_gpu(parcel_id: str) -> dict | None:
+    """Donnees de la fiche GPU (celles qu'affiche /map/parcel-info/<id>/)."""
+    r = requests.get(f"{GPU_SITE}/api/feature-info/parcel/{parcel_id}/fiche",
+                     headers={"User-Agent": _CAD_UA}, timeout=30)
+    if not r.ok:
+        return None
+    data = r.json()
+    if not data.get("parcel", {}).get("features"):
+        return None
+    return data
+
+
+def _pdf_txt(s) -> str:
+    """Texte sur pour un Paragraph ReportLab en Helvetica (XML echappe, cp1252)."""
+    s = str(s or "").replace(" ", " ").replace(" ", " ").strip()
+    s = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return "".join(c if c.encode("cp1252", "ignore") else "?" for c in s)
+
+
+def make_fiche_gpu_pdf(fiche: dict, online_url: str) -> io.BytesIO:  # noqa: C901
+    from gpu_tables import SUP_LIBELLES, PRESCRIPTION_GROUPES
+    _load_pdf_libs()
+    _init_colors()
+
+    parcel = fiche["parcel"]["features"][0]
+    p = parcel.get("properties", {})
+    geom = parcel.get("geometry", {})
+    feats = fiche.get("features", [])
+
+    def of(kind):
+        return [f.get("properties", {}) for f in feats if str(f.get("id", "")).split(".")[0] == kind]
+
+    def uniq(items):
+        seen, out = set(), []
+        for it in items:
+            k = it.strip().lower()
+            if it and k not in seen:
+                seen.add(k)
+                out.append(it)
+        return out
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4, leftMargin=1.5 * cm, rightMargin=1.5 * cm,
+        topMargin=1.4 * cm, bottomMargin=1.4 * cm,
+        title=f"Fiche GPU {p.get('nom_com', '')} {p.get('section', '')} {p.get('numero', '')}",
+        author="Expert PLU",
+    )
+    avail_w = A4[0] - 3 * cm
+
+    sub_title = ParagraphStyle("gs", fontSize=10.5, textColor=BLUE, fontName="Helvetica-Bold",
+                               alignment=TA_CENTER, leading=14)
+    h3 = ParagraphStyle("g3", fontSize=9.5, fontName="Helvetica-Bold", textColor=DARK_BLUE,
+                        spaceBefore=7, spaceAfter=3, leading=12)
+    h4 = ParagraphStyle("g4", fontSize=8.8, fontName="Helvetica-Bold", textColor=TEXT_MID,
+                        spaceBefore=5, spaceAfter=2, leading=11, leftIndent=8)
+    item = ParagraphStyle("gi", fontSize=9, textColor=TEXT_DARK, leading=11.5,
+                          leftIndent=20, bulletIndent=10, spaceAfter=1.5)
+    desc = ParagraphStyle("gd", fontSize=8.3, textColor=TEXT_MID, leading=10.5,
+                          leftIndent=20, spaceAfter=3)
+    small = ParagraphStyle("gsm", fontSize=8.5, textColor=TEXT_MID, leading=11)
+    legend = ParagraphStyle("gl", fontSize=7, textColor=TEXT_LIGHT, alignment=TA_CENTER,
+                            fontName="Helvetica-Oblique", spaceBefore=3, spaceAfter=4)
+    foot = ParagraphStyle("gf", fontSize=7.2, textColor=TEXT_LIGHT, alignment=TA_CENTER, leading=9.5)
+
+    story = []
+
+    # ── En-tete
+    title_tbl = Table([[Paragraph("<b>FICHE INFORMATION DÉTAILLÉE D'UNE PARCELLE</b>",
+                                  ParagraphStyle("gt", fontSize=14, fontName="Helvetica-Bold",
+                                                 textColor=colors.white, alignment=TA_CENTER,
+                                                 leading=18))]],
+                      colWidths=[avail_w], rowHeights=[0.95 * cm])
+    title_tbl.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), DARK_BLUE),
+                                   ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                   ("ROUNDEDCORNERS", [6, 6, 6, 6])]))
+    story += [title_tbl, Spacer(1, 0.18 * cm),
+              Paragraph(_pdf_txt(f"Commune de {p.get('nom_com', '')} - Section {p.get('section', '')}"
+                                 f" - Parcelle {p.get('numero', '')}"), sub_title),
+              Spacer(1, 0.3 * cm)]
+
+    # ── References cadastrales
+    story.append(_section_header("Références cadastrales", avail_w))
+    rows = [("Département", p.get("code_dep", "")), ("Commune", p.get("nom_com", "")),
+            ("Code Insee", p.get("code_insee", ""))]
+    if str(p.get("code_arr") or "000") != "000":
+        rows.append(("Code d'arrondissement", p.get("code_arr")))
+    try:
+        cont = f"{int(float(p.get('contenance'))):,} m²".replace(",", " ")
+    except (TypeError, ValueError):
+        cont = "N/D"
+    rows += [("Section", p.get("section", "")), ("Feuille", p.get("feuille", "")),
+             ("Numéro de parcelle", p.get("numero", "")), ("Contenance", cont)]
+    story += [_kv_table([(k, _pdf_txt(v)) for k, v in rows], avail_w), Spacer(1, 0.25 * cm)]
+
+    # ── Carte (Plan IGN + cadastre + contour rouge)
+    try:
+        map_buf = build_map(pad_bbox(bbox_from_geometry(geom), 3.0), geom)
+    except Exception:
+        map_buf = None
+    if map_buf:
+        img_h = min(avail_w * 0.5, 8 * cm)
+        mt = Table([[RLImage(map_buf, width=avail_w - 4, height=img_h)]], colWidths=[avail_w])
+        mt.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 1, GREY_LINE),
+                                ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2)]))
+        story += [mt, Paragraph("© IGN — Plan IGN et parcellaire cadastral, parcelle en rouge", legend)]
+
+    # ── Documents d'urbanisme
+    story += [Spacer(1, 0.15 * cm), _section_header("Vue détaillée des documents d'urbanisme", avail_w)]
+    docs = of("document")
+    for d in docs:
+        nom = " — ".join(x for x in [d.get("du_type", ""), d.get("grid_title", "")] if x)
+        story.append(Paragraph(_pdf_txt(f"Document : {nom}"), small))
+    if not docs:
+        story.append(Paragraph("Aucun document d'urbanisme publié sur le Géoportail de l'Urbanisme "
+                               "pour cette parcelle.", small))
+
+    zones = of("zone_urba")
+    if zones:
+        story.append(Paragraph("Zonage(s)", h3))
+        for z in zones:
+            story.append(Paragraph(_pdf_txt(f"Parcelle classée {z.get('libelle', '')}"), item, bulletText="•"))
+            if z.get("libelong"):
+                story.append(Paragraph(_pdf_txt(z["libelong"]), desc))
+
+    prescs = of("prescription_surf") + of("prescription_lin") + of("prescription_pct")
+    infos = of("info_surf") + of("info_lin") + of("info_pct")
+    if prescs or infos:
+        story.append(Paragraph("La parcelle est soumise aux dispositions suivantes", h3))
+        rest = list(prescs)
+        for titre, codes in PRESCRIPTION_GROUPES:
+            dans = [x for x in rest if str(x.get("typepsc", "")) in codes]
+            rest = [x for x in rest if x not in dans]
+            libs = uniq([x.get("libelle", "") for x in dans])
+            if libs:
+                story.append(Paragraph(_pdf_txt(titre), h4))
+                story += [Paragraph(_pdf_txt(lib), item, bulletText="•") for lib in libs]
+        libs = uniq([x.get("libelle", "") for x in rest])
+        if libs:
+            story.append(Paragraph("Autres prescriptions", h4))
+            story += [Paragraph(_pdf_txt(lib), item, bulletText="•") for lib in libs]
+        libs = uniq([x.get("libelle", "") for x in infos])
+        if libs:
+            story.append(Paragraph("Périmètres d'informations", h4))
+            story += [Paragraph(_pdf_txt(lib), item, bulletText="•") for lib in libs]
+
+    # ── Servitudes d'utilite publique
+    sups = of("assiette_sup_s") + of("assiette_sup_l") + of("assiette_sup_p")
+    story += [Spacer(1, 0.2 * cm), _section_header("Servitudes d'utilité publique", avail_w)]
+    codes = uniq([str(s.get("suptype", "")).upper() for s in sups])
+    if codes:
+        for c in codes:
+            story.append(Paragraph(_pdf_txt(f"{SUP_LIBELLES.get(c, 'Servitude')} ({c})"), item, bulletText="•"))
+    else:
+        story.append(Paragraph("Aucune servitude d'utilité publique publiée sur cette parcelle.", small))
+
+    # ── SCoT
+    scots = uniq([s.get("title", "") for s in of("scot")])
+    story += [Spacer(1, 0.2 * cm), _section_header("Schéma de cohérence territoriale", avail_w)]
+    if scots:
+        story += [Paragraph(_pdf_txt(t), item, bulletText="•") for t in scots]
+    else:
+        story.append(Paragraph("Aucun SCoT publié pour cette parcelle.", small))
+
+    # ── Pied de page
+    url_xml = online_url.replace("&", "&amp;")
+    story += [
+        Spacer(1, 0.45 * cm),
+        HRFlowable(width="100%", thickness=0.8, color=BLUE, spaceAfter=5),
+        Paragraph("NB : cette fiche a un caractère informatif et ne peut pas être considérée comme "
+                  "un document opposable. Certaines SUP dites « protégées » n'apparaissent pas à "
+                  "toutes les échelles.", foot),
+        Paragraph(f"Source : Géoportail de l'Urbanisme — <a href=\"{url_xml}\" color=\"#2563eb\">"
+                  f"{url_xml}</a>", foot),
+        Paragraph(f"Données extraites le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", foot),
+    ]
+    doc.build(story)
+    buf.seek(0)
+    return buf
+
+
+@app.route("/api/fiche-gpu", methods=["POST"])
+def api_fiche_gpu():
+    body = request.get_json(force=True)
+    parcel = body.get("parcel")
+    if not parcel:
+        return jsonify({"error": "Donnees de parcelle manquantes"}), 400
+    props = parcel.get("properties", {})
+    pid = gpu_parcel_id(props)
+    try:
+        fiche = get_fiche_gpu(pid)
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Le Géoportail de l'Urbanisme ne répond pas, réessayez"}), 504
+    except Exception as e:
+        logger.warning("fiche GPU %s: %s", pid, e)
+        fiche = None
+    if not fiche:
+        return jsonify({"error": "Fiche indisponible sur le Géoportail de l'Urbanisme "
+                                 "pour cette parcelle"}), 502
+    pdf = make_fiche_gpu_pdf(fiche, f"{GPU_SITE}/map/parcel-info/{pid}/")
+    fname = f"fiche_gpu_{props.get('code_insee', '')}_{props.get('section', '')}_{props.get('numero', '')}.pdf"
+    return send_file(pdf, mimetype="application/pdf", as_attachment=True, download_name=fname)
+
+
 @app.route("/")
 def index():
     return render_template("index.html")

@@ -607,13 +607,9 @@
         <div class="actions-grid">
           <button class="btn-secondary" id="btn-extrait" onclick="downloadExtrait()"
                   title="Plan cadastral officiel au 1/500 (cadastre.gouv.fr)">Extrait cadastral</button>
-          <a class="btn-secondary" id="btn-gpu" href="#" target="_blank" rel="noopener"
-             style="text-decoration:none;"
-             title="Fiche information détaillée de la parcelle (Géoportail de l'Urbanisme)">Fiche parcelle GPU</a>
-          <button class="btn-secondary" id="btn-share" onclick="shareLink()" style="grid-column: span 2;"
-                  title="Copier un lien qui rouvre cette fiche">Partager la fiche</button>
+          <button class="btn-secondary" id="btn-gpu" onclick="downloadFicheGpu()"
+                  title="Fiche information détaillée de la parcelle en PDF (Géoportail de l'Urbanisme)">Fiche parcelle GPU</button>
         </div>
-        <span id="share-confirm" style="font-size:.7rem; color:var(--green); display:none; margin-top:.35rem;">Lien copié !</span>
       </div>
 
       <!-- 1. Cadastre -->
@@ -846,13 +842,6 @@ function gpuParcelUrl(parcel) {
   const id = [pp.code_dep || '', pp.code_com || '', pp.code_arr || '000', pp.com_abs || '000',
               pp.section || '', pp.numero || ''].join('_');
   return `https://www.geoportail-urbanisme.gouv.fr/map/parcel-info/${id}/`;
-}
-
-function shareLink() {
-  navigator.clipboard.writeText(window.location.href).then(() => {
-    const el = document.getElementById('share-confirm');
-    if (el) { el.style.display = 'inline'; setTimeout(() => el.style.display = 'none', 2500); }
-  });
 }
 
 async function loadParcelByRef(codeInsee, section, numero) {
@@ -1179,7 +1168,6 @@ function onParcelFound(parcel, addr, lon, lat) {
 
   // 0. Vue d'ensemble (immediate)
   setSummary(parcel);
-  document.getElementById('btn-gpu').href = gpuParcelUrl(parcel);
 
   // 1. Cadastre (immediate)
   displayCadastre(parcel, addr);
@@ -1845,6 +1833,41 @@ async function downloadExtrait() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Extrait cadastral';
+  }
+}
+
+/* Fiche information détaillée d'une parcelle (Géoportail de l'Urbanisme) en PDF */
+async function downloadFicheGpu() {
+  if (!currentParcel) return;
+  const btn = document.getElementById('btn-gpu');
+  btn.disabled = true;
+  btn.textContent = 'Génération…';
+  try {
+    const resp = await fetch('/api/fiche-gpu', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parcel: currentParcel }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showError(err.error || 'Fiche GPU indisponible.');
+      return;
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const p = currentParcel.properties;
+    a.download = `fiche_gpu_${p.code_insee}_${p.section}_${p.numero}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showError('Erreur lors du téléchargement de la fiche GPU.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Fiche parcelle GPU';
   }
 }
 
