@@ -47,27 +47,31 @@
     header {
       background: var(--blue);
       color: #fff;
-      padding: .8rem 1.5rem;
+      padding: .65rem 1.4rem;
       display: flex;
       align-items: center;
-      gap: 1rem;
-      box-shadow: 0 3px 10px rgba(0,0,0,.25);
+      gap: .8rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.18);
       flex-shrink: 0;
       z-index: 1000;
     }
-    .logo { font-size: 1.7rem; font-weight: 800; letter-spacing: -1px; }
+    .logo-mark {
+      width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
+      background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.22);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .logo { font-size: 1.35rem; font-weight: 800; letter-spacing: -.5px; line-height: 1.1; }
     .logo span { color: #7eb8f7; }
-    .logo-sub { font-size: .73rem; opacity: .7; margin-top: .15rem; }
+    .logo-sub { font-size: .72rem; opacity: .72; margin-top: .1rem; }
     .badge {
       margin-left: auto;
-      background: rgba(255,255,255,.12);
-      border: 1px solid rgba(255,255,255,.25);
-      border-radius: 6px;
-      padding: .25rem .6rem;
+      background: rgba(255,255,255,.1);
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 999px;
+      padding: .25rem .75rem;
       font-size: .68rem;
-      opacity: .8;
-      text-align: right;
-      line-height: 1.5;
+      opacity: .85;
+      white-space: nowrap;
     }
 
     /* ── Main layout ── */
@@ -368,6 +372,39 @@
     }
     .download-btn:hover { background: #15803d; }
     .download-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-main {
+      width: 100%; padding: .65rem .8rem; font-size: .86rem; border-radius: 9px;
+      display: flex; align-items: center; justify-content: center; gap: .45rem;
+      box-shadow: 0 1px 2px rgba(22,163,74,.25);
+    }
+    .actions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; margin-top: .45rem; }
+    .btn-secondary {
+      display: flex; align-items: center; justify-content: center; gap: .35rem;
+      padding: .5rem .5rem; border-radius: 9px; cursor: pointer;
+      background: #fff; color: var(--blue); border: 1.5px solid var(--border);
+      font-size: .76rem; font-weight: 700; font-family: inherit;
+      transition: border-color .15s, background .15s;
+    }
+    .btn-secondary:hover:not(:disabled) { border-color: var(--blue); background: var(--blue-light); }
+    .btn-secondary:disabled { opacity: .55; cursor: wait; }
+
+    /* Etat vide (avant recherche) */
+    .empty-state { flex: 1; padding: 1.1rem 1.2rem; color: var(--muted); overflow-y: auto; }
+    .empty-title { font-size: .8rem; font-weight: 700; color: var(--text); margin-bottom: .7rem; }
+    .tip { display: flex; gap: .65rem; align-items: flex-start; margin-bottom: .75rem; }
+    .tip-ico {
+      width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0;
+      background: var(--blue-light); color: var(--blue);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tip b { display: block; color: var(--text); font-size: .79rem; margin-bottom: .1rem; }
+    .tip span { font-size: .73rem; line-height: 1.4; }
+    .sources { margin-top: 1rem; padding-top: .8rem; border-top: 1px solid var(--border); font-size: .68rem; line-height: 1.5; }
+    kbd {
+      font-family: inherit; font-size: .68rem; font-weight: 700;
+      padding: .05rem .35rem; border: 1px solid var(--border); border-bottom-width: 2px;
+      border-radius: 4px; background: #fff; color: var(--text);
+    }
 
     .section-loading {
       font-size: .75rem; color: var(--muted);
@@ -405,15 +442,17 @@
 
     /* ── GPS overlay on map ── */
     .gps-overlay {
-      position: absolute; top: 10px; right: 10px;
-      background: rgba(255,255,255,.92);
+      position: absolute; bottom: 24px; left: 10px;
+      background: rgba(255,255,255,.94);
       border: 1px solid var(--border);
-      border-radius: 8px; padding: .5rem .8rem;
-      z-index: 600; font-size: .72rem;
+      border-radius: 8px; padding: .35rem .7rem;
+      z-index: 600; font-size: .7rem;
       box-shadow: 0 2px 8px rgba(0,0,0,.1);
       display: none;
-      line-height: 1.6;
+      line-height: 1.5;
     }
+    .gps-overlay > div { display: inline-block; margin-right: .7rem; }
+    .gps-overlay > div:last-child { margin-right: 0; }
     .gps-overlay .gps-label { color: var(--muted); font-weight: 600; }
     .gps-overlay .gps-value { color: var(--text); font-weight: 700; font-family: 'SF Mono', 'Consolas', monospace; }
 
@@ -429,14 +468,16 @@
 <body>
 
 <header>
+  <div class="logo-mark">
+    <svg width="19" height="19" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/>
+    </svg>
+  </div>
   <div>
     <div class="logo">C<span>A</span>dastre</div>
-    <div class="logo-sub">Analyse fonciere et urbanistique — Donnees IGN / DGFiP / GPU / Georisques</div>
+    <div class="logo-sub">Analyse foncière et urbanistique d'une parcelle</div>
   </div>
-  <div class="badge">
-    Open Data France<br>
-    IGN / DGFiP / Georisques
-  </div>
+  <div class="badge">Données publiques · IGN · DGFiP · Géorisques</div>
 </header>
 
 <div class="app-layout">
@@ -455,12 +496,12 @@
 
       <div class="tabs">
         <button class="tab active" id="tab-btn-address" onclick="switchTab('address')">Par adresse</button>
-        <button class="tab" id="tab-btn-reference" onclick="switchTab('reference')">Par reference</button>
+        <button class="tab" id="tab-btn-reference" onclick="switchTab('reference')">Par référence</button>
       </div>
 
       <!-- Adresse -->
       <div class="tab-pane active" id="pane-address">
-        <label for="input-address">Adresse complete</label>
+        <label for="input-address">Adresse complète</label>
         <div class="input-wrap">
           <input type="text" id="input-address"
                  placeholder="12 rue de la Paix, 75001 Paris"
@@ -469,7 +510,7 @@
                  onkeydown="onAddressKeydown(event)">
           <div class="ac-dropdown" id="ac-dropdown"></div>
         </div>
-        <p class="hint">Saisissez une adresse — suggestions automatiques.</p>
+        <p class="hint">Saisissez une adresse — suggestions automatiques. Raccourci : touche /</p>
       </div>
 
       <!-- Reference -->
@@ -485,14 +526,14 @@
         </div>
         <input type="hidden" id="input-commune-code">
         <div style="margin-top:.6rem;">
-          <label for="input-ref">Section et numero de parcelle</label>
+          <label for="input-ref">Section et numéro de parcelle</label>
           <input type="text" id="input-ref"
                  placeholder="AB 0001  ou  A 42"
                  autocomplete="off"
                  onkeydown="if(event.key==='Enter') doSearch()">
         </div>
         <p class="hint">
-          Selectionnez la commune, puis saisissez la section et le numero.<br>
+          Sélectionnez la commune, puis saisissez la section et le numéro.<br>
           Ex : Commune <code>Roanne</code> — Parcelle <code>AB 124</code>
         </p>
       </div>
@@ -503,10 +544,31 @@
 
       <div class="spinner" id="spinner">
         <div class="spin-ring"></div>
-        <span>Recherche en cours...</span>
+        <span>Recherche en cours…</span>
       </div>
 
       <div class="error-box" id="error-box"></div>
+    </div>
+
+    <!-- Etat vide (avant toute recherche) -->
+    <div class="empty-state" id="empty-state">
+      <div class="empty-title">Trois façons de trouver une parcelle</div>
+      <div class="tip">
+        <div class="tip-ico"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+        <div><b>Par adresse</b><span>Tapez l'adresse et choisissez une suggestion. Appuyez sur <kbd>/</kbd> pour aller directement au champ.</span></div>
+      </div>
+      <div class="tip">
+        <div class="tip-ico"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+        <div><b>Par référence cadastrale</b><span>Onglet « Par référence » : commune, puis section et numéro (ex. AB 124).</span></div>
+      </div>
+      <div class="tip">
+        <div class="tip-ico"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></div>
+        <div><b>Sur la carte</b><span>Zoomez et cliquez directement sur la parcelle voulue.</span></div>
+      </div>
+      <div class="sources">
+        Vous obtiendrez : zonage PLU, patrimoine et ABF, risques, ventes DVF, fiche PDF et extrait du plan officiel.<br>
+        Sources : IGN, DGFiP, Géoportail de l'urbanisme, Géorisques. Informations indicatives, sans valeur juridique.
+      </div>
     </div>
 
     <!-- Results sections -->
@@ -541,23 +603,14 @@
 
       <!-- Actions principales -->
       <div class="actions-bar">
-        <div class="download-row">
-          <button class="download-btn" id="btn-pdf" onclick="downloadPDF()" style="flex:1;">
-            Telecharger la fiche PDF
-          </button>
+        <button class="download-btn btn-main" id="btn-pdf" onclick="downloadPDF()">Télécharger la fiche PDF</button>
+        <div class="actions-grid">
+          <button class="btn-secondary" id="btn-extrait" onclick="downloadExtrait()"
+                  title="Plan cadastral officiel au 1/500 (cadastre.gouv.fr)">Extrait cadastral</button>
+          <button class="btn-secondary" id="btn-share" onclick="shareLink()"
+                  title="Copier un lien qui rouvre cette fiche">Partager la fiche</button>
         </div>
-        <div class="download-row" style="margin-top:.5rem;">
-          <button class="download-btn" id="btn-extrait" onclick="downloadExtrait()"
-                  style="background:var(--blue); flex:1;">
-            Extrait du plan officiel (cadastre.gouv.fr)
-          </button>
-        </div>
-        <div class="download-row" style="margin-top:.5rem;">
-          <button class="link-btn" style="border:none; cursor:pointer; flex:1; justify-content:center;" id="btn-share" onclick="shareLink()">
-            Copier le lien de la fiche
-          </button>
-        </div>
-        <span id="share-confirm" style="font-size:.7rem; color:var(--green); display:none;">Lien copie !</span>
+        <span id="share-confirm" style="font-size:.7rem; color:var(--green); display:none; margin-top:.35rem;">Lien copié !</span>
       </div>
 
       <!-- 1. Cadastre -->
@@ -602,7 +655,7 @@
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/>
           </svg>
-          Risques &amp; Georisques
+          Risques &amp; Géorisques
           <span class="arrow">&#9654;</span>
         </div>
         <div class="info-wrap" id="wrap-risques"><div class="info-body" id="body-risques"></div></div>
@@ -614,7 +667,7 @@
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
           </svg>
-          Valeurs foncieres (DVF)
+          Valeurs foncières (DVF)
           <span class="arrow">&#9654;</span>
         </div>
         <div class="info-wrap" id="wrap-dvf"><div class="info-body" id="body-dvf"></div></div>
@@ -626,7 +679,7 @@
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/>
           </svg>
-          Saint-Etienne Metropole
+          Saint-Étienne Métropole
           <span class="arrow">&#9654;</span>
         </div>
         <div class="info-wrap" id="wrap-sem"><div class="info-body" id="body-sem"></div></div>
@@ -653,7 +706,7 @@
     </div>
 
     <!-- Map hint -->
-    <div class="map-hint" id="map-hint">Cliquez sur la carte pour selectionner une parcelle</div>
+    <div class="map-hint" id="map-hint">Cliquez sur la carte pour sélectionner une parcelle</div>
   </div>
 
 </div>
@@ -923,6 +976,7 @@ function showError(msg) {
 function clearResults() {
   document.getElementById('error-box').style.display = 'none';
   document.getElementById('results-section').style.display = 'none';
+  document.getElementById('empty-state').style.display = '';
   currentParcel = null;
   currentAddr = null;
   currentLon = null;
@@ -965,8 +1019,8 @@ function setSummary(parcel) {
 function showApproxNote(data) {
   if (!data || !data.approx) return;
   const n = document.getElementById('sum-note');
-  const d = data.distance_m != null ? ` (a environ ${Math.max(1, Math.round(data.distance_m))} m)` : '';
-  n.textContent = `L'adresse tombe sur la voirie : parcelle la plus proche affichee${d}. Verifiez sur la carte, ou cliquez sur la bonne parcelle.`;
+  const d = data.distance_m != null ? ` (à environ ${Math.max(1, Math.round(data.distance_m))} m)` : '';
+  n.textContent = `L'adresse tombe sur la voirie : parcelle la plus proche affichée${d}. Vérifiez sur la carte, ou cliquez sur la bonne parcelle.`;
   n.style.display = 'block';
 }
 function setSummaryField(id, html) {
@@ -998,8 +1052,8 @@ async function doSearch() {
   } else {
     const codeInsee = document.getElementById('input-commune-code').value.trim();
     const ref = document.getElementById('input-ref').value.trim();
-    if (!codeInsee) { showError('Selectionnez une commune.'); return; }
-    if (!ref) { showError('Saisissez la section et le numero de parcelle.'); return; }
+    if (!codeInsee) { showError('Sélectionnez une commune.'); return; }
+    if (!ref) { showError('Saisissez la section et le numéro de parcelle.'); return; }
     body = { type: 'reference', code_insee: codeInsee, section_numero: ref };
   }
 
@@ -1017,7 +1071,7 @@ async function doSearch() {
     onParcelFound(data.parcel, data.address || null, data.lon, data.lat);
     showApproxNote(data);
   } catch (e) {
-    showError('Erreur reseau.');
+    showError('Erreur réseau.');
   } finally {
     setLoading(false);
   }
@@ -1037,7 +1091,7 @@ async function doSearchWithCoords(lon, lat, addrProps) {
     onParcelFound(data.parcel, data.address || addrProps, data.lon, data.lat);
     showApproxNote(data);
   } catch (e) {
-    showError('Erreur reseau.');
+    showError('Erreur réseau.');
   } finally {
     setLoading(false);
   }
@@ -1084,7 +1138,7 @@ async function doSearchByClick(lon, lat) {
       }
     }
   } catch (e) {
-    showError('Erreur reseau.');
+    showError('Erreur réseau.');
   } finally {
     setLoading(false);
   }
@@ -1107,6 +1161,7 @@ function onParcelFound(parcel, addr, lon, lat) {
 
   const resultsEl = document.getElementById('results-section');
   resultsEl.style.display = 'block';
+  document.getElementById('empty-state').style.display = 'none';
   resultsEl.scrollTop = 0;
 
   // 0. Vue d'ensemble (immediate)
@@ -1177,7 +1232,7 @@ function displayCadastre(parcel, addr) {
   if (addr) {
     html += infoRow('Adresse', addr.label || '');
   }
-  html += infoRow('Reference', `${p.code_insee} ${p.section} ${p.numero}`);
+  html += infoRow('Référence', `${p.code_insee} ${p.section} ${p.numero}`);
   html += infoRow('Commune', `${p.nom_com || ''} (${p.code_insee})`);
   html += infoRow('Section', p.section);
   html += infoRow('Parcelle n\u00b0', p.numero);
@@ -1280,13 +1335,13 @@ async function loadUrbanisme(lon, lat) {
         if (z.urlfic) {
           html += `<div style="padding:.3rem 0;">
             <a class="link-btn" href="${esc(z.urlfic)}" target="_blank" rel="noopener">
-              Reglement de zone (PDF)
+              Règlement de zone (PDF)
             </a>
           </div>`;
         }
       }
     } else {
-      html += '<div class="empty-msg">Aucun zonage PLU trouve pour cette parcelle.</div>';
+      html += '<div class="empty-msg">Aucun zonage PLU trouvé pour cette parcelle.</div>';
     }
 
     // Vue d'ensemble : zone PLU
@@ -1302,13 +1357,13 @@ async function loadUrbanisme(lon, lat) {
       html += '<div style="margin-top:.5rem; padding-top:.5rem; border-top:1px solid #eee;">';
       for (const d of docData.documents) {
         html += infoRow('Document', d.type || '?');
-        if (d.titre) html += infoRow('Intitule', d.titre);
+        if (d.titre) html += infoRow('Intitulé', d.titre);
         if (d.statut) html += infoRow('Statut', d.statut);
-        if (d.date) html += infoRow('Mise a jour', d.date);
+        if (d.date) html += infoRow('Mise à jour', d.date);
         if (d.urlreg) {
           html += `<div style="padding:.3rem 0;">
             <a class="link-btn" href="${esc(d.urlreg)}" target="_blank" rel="noopener">
-              Reglement PLU (PDF)
+              Règlement PLU (PDF)
             </a>
           </div>`;
         }
@@ -1334,9 +1389,9 @@ async function loadUrbanisme(lon, lat) {
       html += '</div>';
     }
 
-    body.innerHTML = html || '<div class="empty-msg">Aucune donnee d\'urbanisme disponible.</div>';
+    body.innerHTML = html || '<div class="empty-msg">Aucune donnée d\'urbanisme disponible.</div>';
   } catch (e) {
-    body.innerHTML = `<div class="empty-msg">Erreur lors du chargement des donnees d'urbanisme.</div>`;
+    body.innerHTML = `<div class="empty-msg">Erreur lors du chargement des données d'urbanisme.</div>`;
     setSummaryField('sum-zone', '<span class="stat-sub">N/D</span>');
   }
 }
@@ -1365,8 +1420,8 @@ async function loadPatrimoine(lon, lat) {
     if (data.is_abf) {
       addSummaryChip('badge-red', 'ABF');
       html += `<div class="info-row">
-        <span class="k">Secteur protege</span>
-        <span class="v"><span class="status-badge badge-red">OUI — Perimetre ABF</span></span>
+        <span class="k">Secteur protégé</span>
+        <span class="v"><span class="status-badge badge-red">OUI — Périmètre ABF</span></span>
       </div>`;
       for (const p of data.patrimoine) {
         html += infoRow('Type', p.typepsc);
@@ -1399,7 +1454,7 @@ async function loadPatrimoine(lon, lat) {
       </a>
     </div>
     <div style="font-size:.68rem; color:var(--muted); margin-top:.2rem; line-height:1.4;">
-      Sur l'Atlas des Patrimoines : visualisez les perimetres ABF et monuments historiques de la commune.
+      Sur l'Atlas des Patrimoines : visualisez les périmètres ABF et monuments historiques de la commune.
     </div>`;
 
     body.innerHTML = html;
@@ -1428,22 +1483,22 @@ function loadRisques(lon, lat, code_insee) {
 
   body.innerHTML = `
     <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.6rem;">
-      Risques naturels et technologiques recenses autour de cette parcelle
+      Risques naturels et technologiques recensés autour de cette parcelle
       (inondation, seisme, argiles, radon, sites industriels...).
     </p>
     <div class="download-row">
       <a class="link-btn" href="${esc(rapportUrl)}" target="_blank" rel="noopener"
-         style="flex:1; justify-content:center;">Voir les risques de la parcelle (Georisques)</a>
+         style="flex:1; justify-content:center;">Voir les risques de la parcelle (Géorisques)</a>
     </div>
     <div style="margin-top:.8rem; padding-top:.7rem; border-top:1px solid #eee;">
       <div style="font-size:.72rem; color:var(--muted); font-weight:600; margin-bottom:.35rem;">
-        Etat des risques officiel (ERRIAL) — pour une vente ou une location
+        État des risques officiel (ERRIAL) — pour une vente ou une location
       </div>
       <p style="font-size:.72rem; color:var(--muted); line-height:1.4; margin-bottom:.4rem;">
         ERRIAL n'accepte pas de lien direct : copiez l'adresse puis collez-la dans sa recherche.
       </p>
       <input id="georisques-addr" type="text" readonly value="${esc(address)}"
-             onclick="this.select()" title="Cliquez pour selectionner, puis copiez"
+             onclick="this.select()" title="Cliquez pour sélectionner, puis copiez"
              style="width:100%; padding:.45rem .6rem; border:1px solid var(--border); border-radius:6px;
                     font-size:.8rem; margin-bottom:.5rem; background:#fff; color:var(--text); cursor:text;">
       <div class="download-row" style="gap:.4rem;">
@@ -1453,7 +1508,7 @@ function loadRisques(lon, lat, code_insee) {
            style="flex:1; justify-content:center;">Ouvrir ERRIAL</a>
       </div>
       <span id="georisques-confirm" style="font-size:.72rem; color:var(--green); display:none; margin-top:.3rem;">
-        Adresse copiee !
+        Adresse copiée !
       </span>
     </div>`;
 }
@@ -1470,7 +1525,7 @@ function copyGeorisquesAddr() {
   try { if (navigator.clipboard) navigator.clipboard.writeText(input.value); } catch (e) {}
   const el = document.getElementById('georisques-confirm');
   if (el) {
-    el.textContent = ok ? 'Adresse copiee !' : 'Selectionnez le texte puis Ctrl+C / Cmd+C';
+    el.textContent = ok ? 'Adresse copiée !' : 'Sélectionnez le texte puis Ctrl+C / Cmd+C';
     el.style.display = 'block';
     setTimeout(() => el.style.display = 'none', 4000);
   }
@@ -1484,8 +1539,8 @@ function loadDvf(lon, lat, code_insee) {
   const url = `https://explore.data.gouv.fr/immobilier?onglet=carte&lat=${lat}&lng=${lon}&zoom=18`;
   body.innerHTML = `
     <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.6rem;">
-      Consultez les ventes immobilieres reelles (prix, surfaces, dates) autour de cette parcelle
-      sur le site officiel DVF — Demandes de valeurs foncieres (DGFiP).
+      Consultez les ventes immobilières réelles (prix, surfaces, dates) autour de cette parcelle
+      sur le site officiel DVF — Demandes de valeurs foncières (DGFiP).
     </p>
     <div class="download-row">
       <a class="link-btn" href="${esc(url)}" target="_blank" rel="noopener" style="flex:1; text-align:center;">
@@ -1528,7 +1583,7 @@ function loadSEM(code_insee) {
     <span class="v"><span class="status-badge badge-green">Membre de SEM</span> ${esc(commune)}</span>
   </div>`;
   html += `<div class="info-row">
-    <span class="k">Reference a utiliser</span>
+    <span class="k">Référence à utiliser</span>
     <span class="v" style="font-family:monospace;font-size:.85rem;">${esc(pp.section || '')} ${esc(pp.numero || '')}</span>
   </div>`;
 
@@ -1549,7 +1604,7 @@ function loadSEM(code_insee) {
       <button class="link-btn" style="border:none;cursor:pointer;background:var(--blue);" onclick="copyToClipboard('${semAddr.replace(/'/g, "\\'")}')">
         Copier l'adresse
       </button>
-      <span id="copy-sem" style="font-size:.7rem;color:var(--green);margin-left:.4rem;display:none;">Copie !</span>
+      <span id="copy-sem" style="font-size:.7rem;color:var(--green);margin-left:.4rem;display:none;">Copié !</span>
     </div>`;
   }
 
@@ -1560,12 +1615,12 @@ function loadSEM(code_insee) {
   </a>`;
   if (code_insee === '42218') {
     html += `<a class="link-btn" href="https://connect.saint-etienne.fr/demarche/97/4" target="_blank" rel="noopener">
-      Fiche urbanisme Saint-Etienne
+      Fiche urbanisme Saint-Étienne
     </a>`;
   }
   html += '</div>';
   html += `<div style="font-size:.68rem; color:var(--muted); margin-top:.3rem; line-height:1.4;">
-    Sur le portail SIG : selectionnez la commune <b>${esc(commune)}</b>, puis recherchez la parcelle <b>${esc(ref)}</b>.
+    Sur le portail SIG : sélectionnez la commune <b>${esc(commune)}</b>, puis recherchez la parcelle <b>${esc(ref)}</b>.
   </div>`;
 
   body.innerHTML = html;
@@ -1705,7 +1760,7 @@ async function downloadPDF() {
   if (!currentParcel) return;
   const btn = document.getElementById('btn-pdf');
   btn.disabled = true;
-  btn.textContent = 'Generation du PDF...';
+  btn.textContent = 'Génération du PDF…';
 
   try {
     const resp = await fetch('/api/pdf', {
@@ -1734,10 +1789,10 @@ async function downloadPDF() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (e) {
-    showError('Erreur telechargement.');
+    showError('Erreur de téléchargement.');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Telecharger la fiche PDF';
+    btn.textContent = 'Télécharger la fiche PDF';
   }
 }
 
@@ -1748,7 +1803,7 @@ async function downloadExtrait() {
   if (!currentParcel) return;
   const btn = document.getElementById('btn-extrait');
   btn.disabled = true;
-  btn.textContent = 'Interrogation de cadastre.gouv.fr...';
+  btn.textContent = 'Recherche…';
 
   try {
     const resp = await fetch('/api/extrait-cadastral', {
@@ -1774,10 +1829,10 @@ async function downloadExtrait() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (e) {
-    showError('Erreur lors du telechargement de l\'extrait.');
+    showError('Erreur lors du téléchargement de l\'extrait.');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Extrait du plan officiel (cadastre.gouv.fr)';
+    btn.textContent = 'Extrait cadastral';
   }
 }
 
