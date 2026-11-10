@@ -1120,7 +1120,7 @@ def make_fiche_gpu_pdf(fiche: dict, online_url: str) -> io.BytesIO:  # noqa: C90
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=A4, leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-        topMargin=1.4 * cm, bottomMargin=1.4 * cm,
+        topMargin=1.4 * cm, bottomMargin=2.0 * cm,
         title=f"Fiche GPU {p.get('nom_com', '')} {p.get('section', '')} {p.get('numero', '')}",
         author="Expert PLU",
     )
@@ -1177,7 +1177,7 @@ def make_fiche_gpu_pdf(fiche: dict, online_url: str) -> io.BytesIO:  # noqa: C90
     except Exception:
         map_buf = None
     if map_buf:
-        img_h = min(avail_w * 0.5, 8 * cm)
+        img_h = min(avail_w * 0.45, 7 * cm)
         mt = Table([[RLImage(map_buf, width=avail_w - 4, height=img_h)]], colWidths=[avail_w])
         mt.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 1, GREY_LINE),
                                 ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
@@ -1241,19 +1241,30 @@ def make_fiche_gpu_pdf(fiche: dict, online_url: str) -> io.BytesIO:  # noqa: C90
     else:
         story.append(Paragraph("Aucun SCoT publié pour cette parcelle.", small))
 
-    # ── Pied de page
+    # ── Pied de page, dessine en bas de chaque page (ne peut pas deborder seul)
     url_xml = online_url.replace("&", "&amp;")
-    story += [
-        Spacer(1, 0.45 * cm),
-        HRFlowable(width="100%", thickness=0.8, color=BLUE, spaceAfter=5),
+    stamp = datetime.now().strftime('%d/%m/%Y à %H:%M')
+    foot_paras = [
         Paragraph("NB : cette fiche a un caractère informatif et ne peut pas être considérée comme "
                   "un document opposable. Certaines SUP dites « protégées » n'apparaissent pas à "
                   "toutes les échelles.", foot),
         Paragraph(f"Source : Géoportail de l'Urbanisme — <a href=\"{url_xml}\" color=\"#2563eb\">"
-                  f"{url_xml}</a>", foot),
-        Paragraph(f"Données extraites le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", foot),
+                  f"{url_xml}</a> — données extraites le {stamp}", foot),
     ]
-    doc.build(story)
+
+    def draw_footer(canv, d):
+        canv.saveState()
+        y = 0.6 * cm
+        for para in reversed(foot_paras):
+            _, h = para.wrap(avail_w, 3 * cm)
+            para.drawOn(canv, d.leftMargin, y)
+            y += h + 1
+        canv.setStrokeColor(BLUE)
+        canv.setLineWidth(0.8)
+        canv.line(d.leftMargin, y + 2, d.leftMargin + avail_w, y + 2)
+        canv.restoreState()
+
+    doc.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
     buf.seek(0)
     return buf
 
