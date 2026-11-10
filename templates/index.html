@@ -521,6 +521,8 @@
           </div>
           <div class="summary-chips" id="sum-chips"></div>
         </div>
+        <div id="sum-note" style="display:none; margin-top:.55rem; padding:.4rem .6rem; background:#fff7ed;
+             border:1px solid #fed7aa; border-radius:7px; font-size:.72rem; color:#9a3412; line-height:1.4;"></div>
         <div class="summary-stats">
           <div class="stat">
             <div class="stat-label">Surface</div>
@@ -958,6 +960,14 @@ function setSummary(parcel) {
   document.getElementById('sum-zone').innerHTML = '<span class="shimmer-text"></span>';
   document.getElementById('sum-alt').innerHTML = '<span class="shimmer-text"></span>';
   document.getElementById('sum-chips').innerHTML = '';
+  document.getElementById('sum-note').style.display = 'none';
+}
+function showApproxNote(data) {
+  if (!data || !data.approx) return;
+  const n = document.getElementById('sum-note');
+  const d = data.distance_m != null ? ` (a environ ${Math.max(1, Math.round(data.distance_m))} m)` : '';
+  n.textContent = `L'adresse tombe sur la voirie : parcelle la plus proche affichee${d}. Verifiez sur la carte, ou cliquez sur la bonne parcelle.`;
+  n.style.display = 'block';
 }
 function setSummaryField(id, html) {
   const el = document.getElementById(id);
@@ -1005,6 +1015,7 @@ async function doSearch() {
     if (!resp.ok) { showError(data.error || 'Erreur lors de la recherche.'); return; }
 
     onParcelFound(data.parcel, data.address || null, data.lon, data.lat);
+    showApproxNote(data);
   } catch (e) {
     showError('Erreur reseau.');
   } finally {
@@ -1024,6 +1035,7 @@ async function doSearchWithCoords(lon, lat, addrProps) {
     const data = await resp.json();
     if (!resp.ok) { showError(data.error || 'Erreur.'); return; }
     onParcelFound(data.parcel, data.address || addrProps, data.lon, data.lat);
+    showApproxNote(data);
   } catch (e) {
     showError('Erreur reseau.');
   } finally {
@@ -1401,30 +1413,49 @@ async function loadPatrimoine(lon, lat) {
    ═══════════════════════════════════════════════════════════════════════════ */
 function loadRisques(lon, lat, code_insee) {
   const body = document.getElementById('body-risques');
-  // ERRIAL ne gere pas les liens directs vers une parcelle : on affiche
-  // l'adresse (selectionnable) + un bouton Copier + un lien vers Georisques.
   const addrLabel = currentAddr?.label || '';
   const pr = currentParcel?.properties || {};
   const parcelRef = `${pr.nom_com || ''} ${pr.section || ''}${pr.numero || ''}`.trim();
   const address = addrLabel || parcelRef;
+
+  // Lien direct vers le rapport Georisques "Les risques pres de chez moi"
+  const q = new URLSearchParams({
+    'form-adresse': 'true', isCadastre: 'false', typeForm: 'adresse',
+    codeInsee: code_insee || '', lon: Number(lon).toFixed(6), lat: Number(lat).toFixed(6),
+    go_back: '/', adresse: address,
+  });
+  const rapportUrl = 'https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi/rapport2?' + q.toString();
+
   body.innerHTML = `
-    <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.5rem;">
-      Georisques n'ouvre pas directement une parcelle. Copiez l'adresse ci-dessous,
-      ouvrez Georisques, puis collez-la dans sa barre de recherche.
+    <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.6rem;">
+      Risques naturels et technologiques recenses autour de cette parcelle
+      (inondation, seisme, argiles, radon, sites industriels...).
     </p>
-    <input id="georisques-addr" type="text" readonly value="${esc(address)}"
-           onclick="this.select()" title="Cliquez pour selectionner, puis copiez"
-           style="width:100%; padding:.45rem .6rem; border:1px solid var(--border); border-radius:6px;
-                  font-size:.8rem; margin-bottom:.5rem; background:#fff; color:var(--text); cursor:text;">
-    <div class="download-row" style="gap:.4rem;">
-      <button class="link-btn" style="border:none; cursor:pointer; flex:1; text-align:center;"
-              onclick="copyGeorisquesAddr()">Copier l'adresse</button>
-      <a class="link-btn" href="https://errial.georisques.gouv.fr/#/" target="_blank" rel="noopener"
-         style="flex:1; text-align:center;">Ouvrir Georisques</a>
+    <div class="download-row">
+      <a class="link-btn" href="${esc(rapportUrl)}" target="_blank" rel="noopener"
+         style="flex:1; justify-content:center;">Voir les risques de la parcelle (Georisques)</a>
     </div>
-    <span id="georisques-confirm" style="font-size:.72rem; color:var(--green); display:none; margin-top:.3rem;">
-      Adresse copiee !
-    </span>`;
+    <div style="margin-top:.8rem; padding-top:.7rem; border-top:1px solid #eee;">
+      <div style="font-size:.72rem; color:var(--muted); font-weight:600; margin-bottom:.35rem;">
+        Etat des risques officiel (ERRIAL) — pour une vente ou une location
+      </div>
+      <p style="font-size:.72rem; color:var(--muted); line-height:1.4; margin-bottom:.4rem;">
+        ERRIAL n'accepte pas de lien direct : copiez l'adresse puis collez-la dans sa recherche.
+      </p>
+      <input id="georisques-addr" type="text" readonly value="${esc(address)}"
+             onclick="this.select()" title="Cliquez pour selectionner, puis copiez"
+             style="width:100%; padding:.45rem .6rem; border:1px solid var(--border); border-radius:6px;
+                    font-size:.8rem; margin-bottom:.5rem; background:#fff; color:var(--text); cursor:text;">
+      <div class="download-row" style="gap:.4rem;">
+        <button class="link-btn" style="border:none; cursor:pointer; flex:1; justify-content:center;"
+                onclick="copyGeorisquesAddr()">Copier l'adresse</button>
+        <a class="link-btn" href="https://errial.georisques.gouv.fr/#/" target="_blank" rel="noopener"
+           style="flex:1; justify-content:center;">Ouvrir ERRIAL</a>
+      </div>
+      <span id="georisques-confirm" style="font-size:.72rem; color:var(--green); display:none; margin-top:.3rem;">
+        Adresse copiee !
+      </span>
+    </div>`;
 }
 
 function copyGeorisquesAddr() {

@@ -154,6 +154,73 @@ def parcel_by_coords(lon: float, lat: float) -> dict:
     return r.json()
 
 
+def _dist_point_geom_m(lon: float, lat: float, geom: dict) -> float:
+    """Distance (m) entre un point et le contour d'une geometrie Polygon/MultiPolygon."""
+    kx = 111320.0 * math.cos(math.radians(lat))
+    ky = 110540.0
+    best = float("inf")
+
+    def seg_dist(ax, ay, bx, by):
+        dx, dy = bx - ax, by - ay
+        if dx == 0 and dy == 0:
+            return math.hypot(ax, ay)
+        t = max(0.0, min(1.0, -(ax * dx + ay * dy) / (dx * dx + dy * dy)))
+        return math.hypot(ax + t * dx, ay + t * dy)
+
+    def walk(c):
+        nonlocal best
+        if c and isinstance(c[0][0], (int, float)):
+            pts = [((p[0] - lon) * kx, (p[1] - lat) * ky) for p in c]
+            for (ax, ay), (bx, by) in zip(pts, pts[1:]):
+                best = min(best, seg_dist(ax, ay, bx, by))
+        else:
+            for sub in c:
+                walk(sub)
+
+    walk(geom.get("coordinates", []))
+    return best
+
+
+def nearest_parcel(lon: float, lat: float) -> tuple[dict | None, float]:
+    """
+    Parcelle la plus proche d'un point tombe hors parcelle (adresse geocodee
+    sur la voirie). Cherche dans un carre de 15 m puis 40 m autour du point.
+    Retourne (feature, distance_m) ou (None, 0).
+    """
+    for radius in (15, 40):
+        dlat = radius / 110540.0
+        dlon = radius / (111320.0 * math.cos(math.radians(lat)))
+        poly = {"type": "Polygon", "coordinates": [[
+            [lon - dlon, lat - dlat], [lon + dlon, lat - dlat],
+            [lon + dlon, lat + dlat], [lon - dlon, lat + dlat],
+            [lon - dlon, lat - dlat],
+        ]]}
+        r = requests.get(
+            f"{CARTO_API}/cadastre/parcelle",
+            params={"geom": json.dumps(poly), "_limit": 30},
+            timeout=TIMEOUT,
+        )
+        if not r.ok:
+            continue
+        feats = r.json().get("features", [])
+        if feats:
+            best = min(feats, key=lambda f: _dist_point_geom_m(lon, lat, f.get("geometry", {})))
+            return best, _dist_point_geom_m(lon, lat, best.get("geometry", {}))
+    return None, 0.0
+
+
+def georisques_rapport_url(lon: float, lat: float, code_insee: str = "", label: str = "") -> str:
+    """Lien direct vers le rapport 'Les risques pres de chez moi' de Georisques."""
+    from urllib.parse import urlencode
+    params = {
+        "form-adresse": "true", "isCadastre": "false", "typeForm": "adresse",
+        "codeInsee": code_insee or "", "lon": f"{lon:.6f}", "lat": f"{lat:.6f}",
+        "go_back": "/", "adresse": label or "",
+    }
+    return ("https://www.georisques.gouv.fr/mes-risques/"
+            "connaitre-les-risques-pres-de-chez-moi/rapport2?" + urlencode(params))
+
+
 def parse_ref(ref: str):
     """
     Parse une reference cadastrale :
@@ -964,7 +1031,17 @@ def api_search():
 
             data = parcel_by_coords(lon, lat)
             if not data.get("features"):
-                return jsonify({"error": "Aucune parcelle cadastrale a cette position"}), 404
+                # Adresse geocodee sur la voirie : repli sur la parcelle la plus proche
+                feat, dist = nearest_parcel(float(lon), float(lat))
+                if not feat:
+                    return jsonify({"error": "Aucune parcelle cadastrale a cette position"}), 404
+                return jsonify({
+                    "parcel": feat,
+                    "address": addr_props,
+                    "lon": lon, "lat": lat,
+                    "approx": True,
+                    "distance_m": round(dist, 1),
+                })
 
             return jsonify({
                 "parcel": data["features"][0],
@@ -1165,7 +1242,7 @@ def api_risques():
     risques = flatten_risques(risques_commune)
 
     # Lien Georisques : page principale d'etat des risques
-    georisques_url = "https://errial.georisques.gouv.fr/"
+    georisques_url = georisques_rapport_url(lon, lat, code_insee, request.args.get("adresse", ""))
 
     return jsonify({
         "risques": risques,
@@ -1271,7 +1348,9 @@ def api_pdf():
             or p.get("properties", {}).get("typepsc", "").startswith("05")
         ]
 
-        errial_url = "https://errial.georisques.gouv.fr/"
+        _pp = parcel.get("properties", {})
+        _label = (addr or {}).get("label") or f"{_pp.get('nom_com', '')} {_pp.get('section', '')}{_pp.get('numero', '')}".strip()
+        errial_url = georisques_rapport_url(clon, clat, code_insee, _label)
 
         pdf = make_pdf(
             parcel, addr,
