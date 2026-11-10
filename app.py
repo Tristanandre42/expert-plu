@@ -392,9 +392,38 @@ def _strip_accents(s: str) -> str:
                    if unicodedata.category(c) != "Mn")
 
 
+def wgs84_to_cc(lon: float, lat: float, zone: int) -> tuple[float, float]:
+    """WGS84/RGF93 -> Lambert conique conforme 9 zones (CC42 a CC50), ellipsoide GRS80."""
+    a = 6378137.0
+    f = 1 / 298.257222101
+    e = math.sqrt(2 * f - f * f)
+    lon0 = math.radians(3.0)
+    phi0, phi1, phi2 = (math.radians(zone), math.radians(zone - 0.75), math.radians(zone + 0.75))
+    x0, y0 = 1_700_000.0, (zone - 41) * 1_000_000 + 200_000
+
+    def m(p):
+        return math.cos(p) / math.sqrt(1 - (e * math.sin(p)) ** 2)
+
+    def t(p):
+        return math.tan(math.pi / 4 - p / 2) / ((1 - e * math.sin(p)) / (1 + e * math.sin(p))) ** (e / 2)
+
+    n = (math.log(m(phi1)) - math.log(m(phi2))) / (math.log(t(phi1)) - math.log(t(phi2)))
+    big_f = m(phi1) / (n * t(phi1) ** n)
+    r0 = a * big_f * t(phi0) ** n
+    r = a * big_f * t(math.radians(lat)) ** n
+    th = n * (math.radians(lon) - lon0)
+    return x0 + r * math.sin(th), y0 + r0 - r * math.cos(th)
+
+
+# Cadre carte d'un extrait A4 portrait, en centiemes de mm (valeurs du site cadastre.gouv.fr)
+_A4_PORTRAIT_CMM = (19550, 21100)
+_ECHELLES_EXTRAIT = (500, 1000, 2000, 2500, 5000)
+
+
 def get_extrait_cadastral(code_insee: str, section: str, numero: str,
                           prefixe: str = "000", ville: str = "",
-                          parcel_size_m: float = 0) -> bytes | None:
+                          parcel_size_m: float = 0,
+                          geom: dict | None = None) -> bytes | None:
     """
     Telecharge l'extrait de plan cadastral officiel (PDF DGFiP) depuis
     cadastre.gouv.fr en rejouant le parcours du site :
@@ -402,7 +431,9 @@ def get_extrait_cadastral(code_insee: str, section: str, numero: str,
       2. rechercherParReferenceCadastrale.do -> identifiants parcelle/feuille
          (avec desambiguisation codeCommune si plusieurs communes homonymes)
       3. afficherCarteParcelle.do -> centre de la parcelle (Lambert CC)
-      4. imprimerExtraitCadastralNonNormalise.do -> PDF
+      4. imprimerExtraitCadastral.do -> extrait normalise A4 (cartouche DGFiP,
+         carroyage), cadre sur le centre de la parcelle ; a defaut, version
+         non normalisee (imprimerExtraitCadastralNonNormalise.do)
     """
     s = requests.Session()
     s.headers["User-Agent"] = _CAD_UA
@@ -441,11 +472,11 @@ def get_extrait_cadastral(code_insee: str, section: str, numero: str,
 
     if not links:
         # Desambiguisation : plusieurs communes homonymes -> select codeCommune
-        # dont la valeur se termine par le code commune INSEE sur 4 chiffres
-        # (ex : 42097 -> "0097" -> value "I0097").
-        part = code_insee[2:].zfill(4)
-        options = re.findall(r'<option value="([A-Z][0-9A-Z]{4})"', r.text)
-        code_commune = next((o for o in options if o[-4:] == part), None)
+        # dont la valeur se termine par le numero de commune INSEE sur 3 chiffres
+        # (ex : 42097 -> "I0097", 69382 -> "R0382", 13201 -> "81201").
+        part = code_insee[-3:]
+        options = re.findall(r'<option value="([0-9A-Z]{5})"', r.text)
+        code_commune = next((o for o in options if o[-3:] == part), None)
         if not code_commune:
             return None
         data["codeCommune"] = code_commune
@@ -464,7 +495,59 @@ def get_extrait_cadastral(code_insee: str, section: str, numero: str,
         return None
     x, y = float(m.group(1)), float(m.group(2))
 
-    # 4. Extrait PDF ~1/500 (bbox elargie si la parcelle est plus grande)
+    # 4a. Extrait normalise (identique au parcours "Outils avances > Imprimer").
+    # Centre du cadre = centre de l'emprise de la parcelle projetee dans la
+    # zone CC de la feuille ; a defaut, la pastille de la parcelle.
+    cx, cy = x, y
+    span_x = span_y = 0.0
+    if geom and geom.get("coordinates"):
+        try:
+            zone = 41 + round((y - 200_000) / 1_000_000)
+            pts = []
+
+            def walk(c):
+                if c and isinstance(c[0], (int, float)):
+                    pts.append(wgs84_to_cc(c[0], c[1], zone))
+                else:
+                    for sub in c:
+                        walk(sub)
+
+            walk(geom["coordinates"])
+            if pts:
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                mx, my = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+                if abs(mx - x) < 2000 and abs(my - y) < 2000:  # garde-fou zone/projection
+                    cx, cy = mx, my
+                    span_x, span_y = max(xs) - min(xs), max(ys) - min(ys)
+        except Exception:
+            pass
+
+    echelle = _ECHELLES_EXTRAIT[-1]
+    for ech in _ECHELLES_EXTRAIT:
+        if (span_x <= _A4_PORTRAIT_CMM[0] * 1e-5 * ech * 0.85
+                and span_y <= _A4_PORTRAIT_CMM[1] * 1e-5 * ech * 0.85):
+            echelle = ech
+            break
+    half_w = _A4_PORTRAIT_CMM[0] * 1e-5 * echelle / 2
+    half_h = _A4_PORTRAIT_CMM[1] * 1e-5 * echelle / 2
+    try:
+        r = s.post(
+            f"{CADASTRE_GOUV}/imprimerExtraitCadastral.do?CSRF_TOKEN={csrf}",
+            data={
+                "MAPBBOX": f"{cx - half_w},{cy - half_h},{cx + half_w},{cy + half_h}",
+                "MAPROTATION": "0", "TAILLEPAGE": "A4", "ORIENTPAGE": "Portrait",
+                "RFV_REF": "", "RFV_X": str(x), "RFV_Y": str(y),
+                "ECHELLE": str(echelle), "NATURE": "V", "RESOLUTION": "", "DRAPEAU": "false",
+            },
+            timeout=60,
+        )
+        if r.ok and r.content[:4] == b"%PDF":
+            return r.content
+    except requests.exceptions.RequestException as e:
+        logger.warning("extrait normalise indisponible: %s", e)
+
+    # 4b. Secours : extrait non normalise ~1/500
     w = max(95.0, parcel_size_m * 1.4)
     h = w * 675.0 / 700.0
     bbox = f"{x - w/2},{y - h/2},{x + w/2},{y + h/2}"
@@ -1290,7 +1373,7 @@ def api_extrait_cadastral():
     try:
         pdf = get_extrait_cadastral(code_insee, section, numero,
                                     prefixe=prefixe, ville=ville,
-                                    parcel_size_m=parcel_size_m)
+                                    parcel_size_m=parcel_size_m, geom=geom)
     except requests.exceptions.Timeout:
         return jsonify({"error": "cadastre.gouv.fr ne repond pas, reessayez"}), 504
     except Exception as e:
