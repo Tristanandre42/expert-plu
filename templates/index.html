@@ -607,7 +607,10 @@
         <div class="actions-grid">
           <button class="btn-secondary" id="btn-extrait" onclick="downloadExtrait()"
                   title="Plan cadastral officiel au 1/500 (cadastre.gouv.fr)">Extrait cadastral</button>
-          <button class="btn-secondary" id="btn-share" onclick="shareLink()"
+          <a class="btn-secondary" id="btn-gpu" href="#" target="_blank" rel="noopener"
+             style="text-decoration:none;"
+             title="Fiche information détaillée de la parcelle (Géoportail de l'Urbanisme)">Fiche parcelle GPU</a>
+          <button class="btn-secondary" id="btn-share" onclick="shareLink()" style="grid-column: span 2;"
                   title="Copier un lien qui rouvre cette fiche">Partager la fiche</button>
         </div>
         <span id="share-confirm" style="font-size:.7rem; color:var(--green); display:none; margin-top:.35rem;">Lien copié !</span>
@@ -835,6 +838,16 @@ function copyToClipboard(text) {
 /* ═══════════════════════════════════════════════════════════════════════════
    PARTAGE / LIEN PROFOND (deep-link)
    ═══════════════════════════════════════════════════════════════════════════ */
+/* Fiche information detaillee d'une parcelle (Geoportail de l'Urbanisme).
+   Format : departement_commune_arrondissement_communeAbsorbee_section_numero
+   (ex. 43_157_000_000_AX_0286, Lyon 2e : 69_123_382_000_AK_0102). */
+function gpuParcelUrl(parcel) {
+  const pp = parcel?.properties || {};
+  const id = [pp.code_dep || '', pp.code_com || '', pp.code_arr || '000', pp.com_abs || '000',
+              pp.section || '', pp.numero || ''].join('_');
+  return `https://www.geoportail-urbanisme.gouv.fr/map/parcel-info/${id}/`;
+}
+
 function shareLink() {
   navigator.clipboard.writeText(window.location.href).then(() => {
     const el = document.getElementById('share-confirm');
@@ -1166,6 +1179,7 @@ function onParcelFound(parcel, addr, lon, lat) {
 
   // 0. Vue d'ensemble (immediate)
   setSummary(parcel);
+  document.getElementById('btn-gpu').href = gpuParcelUrl(parcel);
 
   // 1. Cadastre (immediate)
   displayCadastre(parcel, addr);
@@ -1376,13 +1390,11 @@ async function loadUrbanisme(lon, lat) {
         }
       }
       // Liens Geoportail Urbanisme
-      const pp = currentParcel?.properties || {};
-      const gpuParcelId = `${pp.code_dep || ''}_${pp.code_com || ''}_${pp.com_abs || '000'}_${pp.code_arr || '000'}_${pp.section || ''}_${pp.numero || ''}`;
       html += `<div style="padding:.3rem 0; display:flex; gap:.4rem; flex-wrap:wrap;">
         <a class="link-btn" href="https://www.geoportail-urbanisme.gouv.fr/map/#tile=1&lon=${lon}&lat=${lat}&zoom=19" target="_blank" rel="noopener">
           Carte PLU (cliquer la parcelle)
         </a>
-        <a class="link-btn" href="https://www.geoportail-urbanisme.gouv.fr/map/parcel-info/${gpuParcelId}/" target="_blank" rel="noopener">
+        <a class="link-btn" href="${esc(gpuParcelUrl(currentParcel))}" target="_blank" rel="noopener">
           Fiche parcelle
         </a>
       </div>`;
