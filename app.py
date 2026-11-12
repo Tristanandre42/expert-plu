@@ -1082,14 +1082,16 @@ def gpu_parcel_id(props: dict) -> str:
 
 def get_fiche_gpu(parcel_id: str) -> dict | None:
     """Donnees de la fiche GPU (celles qu'affiche /map/parcel-info/<id>/)."""
-    r = requests.get(f"{GPU_SITE}/api/feature-info/parcel/{parcel_id}/fiche",
-                     headers={"User-Agent": _CAD_UA}, timeout=30)
-    if not r.ok:
-        return None
-    data = r.json()
-    if not data.get("parcel", {}).get("features"):
-        return None
-    return data
+    # Le GPU a deplace son API (nov. 2026) : /parcel/{id}/ ; l'ancienne adresse /fiche reste en secours.
+    for url in (f"{GPU_SITE}/api/feature-info/parcel/{parcel_id}/",
+                f"{GPU_SITE}/api/feature-info/parcel/{parcel_id}/fiche"):
+        r = requests.get(url, headers={"User-Agent": _CAD_UA}, timeout=30)
+        if not r.ok or "json" not in r.headers.get("content-type", ""):
+            continue
+        data = r.json()
+        if data.get("parcel", {}).get("features"):
+            return data
+    return None
 
 
 def _pdf_txt(s) -> str:
