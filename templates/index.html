@@ -605,8 +605,10 @@
       <div class="actions-bar">
         <button class="download-btn btn-main" id="btn-pdf" onclick="downloadPDF()">Télécharger la fiche PDF</button>
         <div class="actions-grid">
-          <button class="btn-secondary" id="btn-extrait" onclick="downloadExtrait()" style="grid-column: span 2;"
+          <button class="btn-secondary" id="btn-extrait" onclick="downloadExtrait()"
                   title="Plan cadastral officiel au 1/500 (cadastre.gouv.fr)">Extrait cadastral</button>
+          <a class="btn-secondary" id="btn-gmaps" href="#" target="_blank" rel="noopener"
+             style="text-decoration:none;" title="Ouvrir l'emplacement de la parcelle dans Google Maps">Ouvrir dans Google Maps</a>
         </div>
       </div>
 
@@ -1270,13 +1272,12 @@ function displayCadastre(parcel, addr) {
   } else if (currentLat != null && currentLon != null) {
     mapsQuery = `${currentLat},${currentLon}`;
   }
-  if (mapsQuery) {
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`;
-    html += `<div class="download-row" style="margin-top:.6rem;">
-      <a class="link-btn" href="${esc(mapsUrl)}" target="_blank" rel="noopener">
-        Ouvrir dans Google Maps
-      </a>
-    </div>`;
+  const gmaps = document.getElementById('btn-gmaps');
+  if (gmaps) {
+    gmaps.href = mapsQuery
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}` : '#';
+    gmaps.style.display = mapsQuery ? '' : 'none';
+    document.getElementById('btn-extrait').style.gridColumn = mapsQuery ? '' : 'span 2';
   }
 
   document.getElementById('body-cadastre').innerHTML = html;
