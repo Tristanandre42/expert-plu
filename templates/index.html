@@ -605,10 +605,8 @@
       <div class="actions-bar">
         <button class="download-btn btn-main" id="btn-pdf" onclick="downloadPDF()">Télécharger la fiche PDF</button>
         <div class="actions-grid">
-          <button class="btn-secondary" id="btn-extrait" onclick="downloadExtrait()"
+          <button class="btn-secondary" id="btn-extrait" onclick="downloadExtrait()" style="grid-column: span 2;"
                   title="Plan cadastral officiel au 1/500 (cadastre.gouv.fr)">Extrait cadastral</button>
-          <button class="btn-secondary" id="btn-gpu" onclick="downloadFicheGpu()"
-                  title="Fiche information détaillée de la parcelle en PDF (Géoportail de l'Urbanisme)">Fiche parcelle GPU</button>
         </div>
       </div>
 
@@ -747,14 +745,39 @@ function onAddressInput() {
   clearTimeout(acTimer);
   const q = document.getElementById('input-address').value.trim();
   if (q.length < 3) { closeAC(); return; }
-  acTimer = setTimeout(() => fetchAutocomplete(q), 160);
+  acTimer = setTimeout(() => fetchAutocomplete(q), 100);
+}
+
+// Interroge directement la Base Adresse Nationale depuis le navigateur (plus rapide que
+// de passer par le serveur, situe aux Etats-Unis) ; le serveur reste en secours.
+const acCache = new Map();
+let acAbort = null;
+async function banSuggest(q, signal) {
+  const r = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&autocomplete=1&limit=6`, { signal });
+  if (!r.ok) throw new Error('BAN ' + r.status);
+  const j = await r.json();
+  return (j.features || []).map(f => ({
+    label: f.properties.label || '', city: f.properties.city || '', postcode: f.properties.postcode || '',
+    lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+  }));
 }
 
 async function fetchAutocomplete(q) {
   const reqId = ++acReqId;
+  if (acAbort) acAbort.abort();
+  acAbort = new AbortController();
   try {
-    const resp = await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`);
-    const data = await resp.json();
+    let data = acCache.get(q);
+    if (!data) {
+      try {
+        data = await banSuggest(q, acAbort.signal);
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        const resp = await fetch(`/api/autocomplete?q=${encodeURIComponent(q)}`);
+        data = await resp.json();
+      }
+      if (Array.isArray(data)) acCache.set(q, data);
+    }
     if (reqId !== acReqId) return;                 // ignore une reponse devancee
     if (!Array.isArray(data) || !data.length) { closeAC(); return; }
     acItems = data;
@@ -767,7 +790,7 @@ async function fetchAutocomplete(q) {
       </div>`
     ).join('');
     dd.classList.add('open');
-  } catch(e) { if (reqId === acReqId) closeAC(); }
+  } catch(e) { if (reqId === acReqId && e.name !== 'AbortError') closeAC(); }
 }
 
 function onAddressKeydown(e) {
@@ -883,7 +906,7 @@ function onCommuneInput() {
   clearTimeout(communeTimer);
   const q = document.getElementById('input-commune').value.trim();
   if (q.length < 2) { closeCommuneAC(); return; }
-  communeTimer = setTimeout(() => fetchCommuneAC(q), 250);
+  communeTimer = setTimeout(() => fetchCommuneAC(q), 120);
 }
 
 async function fetchCommuneAC(q) {
@@ -1473,24 +1496,12 @@ function loadRisques(lon, lat, code_insee) {
   const parcelRef = `${pr.nom_com || ''} ${pr.section || ''}${pr.numero || ''}`.trim();
   const address = addrLabel || parcelRef;
 
-  // Lien direct vers le rapport Georisques "Les risques pres de chez moi"
-  const q = new URLSearchParams({
-    'form-adresse': 'true', isCadastre: 'false', typeForm: 'adresse',
-    codeInsee: code_insee || '', lon: Number(lon).toFixed(6), lat: Number(lat).toFixed(6),
-    go_back: '/', adresse: address,
-  });
-  const rapportUrl = 'https://www.georisques.gouv.fr/mes-risques/connaitre-les-risques-pres-de-chez-moi/rapport2?' + q.toString();
-
   body.innerHTML = `
     <p style="font-size:.78rem; color:var(--muted); line-height:1.45; margin-bottom:.6rem;">
       Risques naturels et technologiques recensés autour de cette parcelle
       (inondation, seisme, argiles, radon, sites industriels...).
     </p>
-    <div class="download-row">
-      <a class="link-btn" href="${esc(rapportUrl)}" target="_blank" rel="noopener"
-         style="flex:1; justify-content:center;">Voir les risques de la parcelle (Géorisques)</a>
-    </div>
-    <div style="margin-top:.8rem; padding-top:.7rem; border-top:1px solid #eee;">
+    <div>
       <div style="font-size:.72rem; color:var(--muted); font-weight:600; margin-bottom:.35rem;">
         État des risques officiel (ERRIAL) — pour une vente ou une location
       </div>
@@ -1833,41 +1844,6 @@ async function downloadExtrait() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Extrait cadastral';
-  }
-}
-
-/* Fiche information détaillée d'une parcelle (Géoportail de l'Urbanisme) en PDF */
-async function downloadFicheGpu() {
-  if (!currentParcel) return;
-  const btn = document.getElementById('btn-gpu');
-  btn.disabled = true;
-  btn.textContent = 'Génération…';
-  try {
-    const resp = await fetch('/api/fiche-gpu', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parcel: currentParcel }),
-    });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      showError(err.error || 'Fiche GPU indisponible.');
-      return;
-    }
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const p = currentParcel.properties;
-    a.download = `fiche_gpu_${p.code_insee}_${p.section}_${p.numero}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (e) {
-    showError('Erreur lors du téléchargement de la fiche GPU.');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Fiche parcelle GPU';
   }
 }
 
