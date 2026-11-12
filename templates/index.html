@@ -609,8 +609,6 @@
                   title="Plan cadastral officiel au 1/500 (cadastre.gouv.fr)">Extrait cadastral</button>
           <button class="btn-secondary" id="btn-gpu" onclick="downloadFicheGpu()"
                   title="Fiche information détaillée de la parcelle en PDF (Géoportail de l'Urbanisme)">Fiche parcelle GPU</button>
-          <button class="btn-secondary" id="btn-errial" onclick="downloadErrial(this)" style="grid-column: span 2;"
-                  title="État des risques officiel pour l'information des acquéreurs et locataires (Géorisques)">État des risques ERRIAL</button>
         </div>
       </div>
 
@@ -1496,14 +1494,41 @@ function loadRisques(lon, lat, code_insee) {
       <div style="font-size:.72rem; color:var(--muted); font-weight:600; margin-bottom:.35rem;">
         État des risques officiel (ERRIAL) — pour une vente ou une location
       </div>
-      <div class="download-row" style="gap:.4rem;">
-        <button class="link-btn" id="btn-errial-risques" style="border:none; cursor:pointer; flex:1; justify-content:center;"
-                onclick="downloadErrial(this)">Télécharger l'ERRIAL de la parcelle (PDF)</button>
-      </div>
-      <p style="font-size:.7rem; color:var(--muted); line-height:1.4; margin-top:.35rem;">
-        Document officiel pré-rempli par l'État (errial.georisques.gouv.fr), à compléter et signer.
+      <p style="font-size:.72rem; color:var(--muted); line-height:1.4; margin-bottom:.4rem;">
+        ERRIAL n'accepte pas de lien direct : copiez l'adresse puis collez-la dans sa recherche.
       </p>
+      <input id="georisques-addr" type="text" readonly value="${esc(address)}"
+             onclick="this.select()" title="Cliquez pour sélectionner, puis copiez"
+             style="width:100%; padding:.45rem .6rem; border:1px solid var(--border); border-radius:6px;
+                    font-size:.8rem; margin-bottom:.5rem; background:#fff; color:var(--text); cursor:text;">
+      <div class="download-row" style="gap:.4rem;">
+        <button class="link-btn" style="border:none; cursor:pointer; flex:1; justify-content:center;"
+                onclick="copyGeorisquesAddr()">Copier l'adresse</button>
+        <a class="link-btn" href="https://errial.georisques.gouv.fr/#/" target="_blank" rel="noopener"
+           style="flex:1; justify-content:center;">Ouvrir ERRIAL</a>
+      </div>
+      <span id="georisques-confirm" style="font-size:.72rem; color:var(--green); display:none; margin-top:.3rem;">
+        Adresse copiée !
+      </span>
     </div>`;
+}
+
+function copyGeorisquesAddr() {
+  const input = document.getElementById('georisques-addr');
+  if (!input) return;
+  // Selection visible + copie synchrone (geste utilisateur, aucune navigation)
+  input.focus();
+  input.select();
+  input.setSelectionRange(0, input.value.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  try { if (navigator.clipboard) navigator.clipboard.writeText(input.value); } catch (e) {}
+  const el = document.getElementById('georisques-confirm');
+  if (el) {
+    el.textContent = ok ? 'Adresse copiée !' : 'Sélectionnez le texte puis Ctrl+C / Cmd+C';
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 4000);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1808,41 +1833,6 @@ async function downloadExtrait() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Extrait cadastral';
-  }
-}
-
-/* État des risques officiel (ERRIAL, Géorisques) en PDF */
-async function downloadErrial(btn) {
-  if (!currentParcel || !btn || btn.disabled) return;
-  const label = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Génération de l\'ERRIAL…';
-  try {
-    const resp = await fetch('/api/errial', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parcel: currentParcel }),
-    });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      showError(err.error || 'ERRIAL indisponible.');
-      return;
-    }
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const p = currentParcel.properties;
-    a.download = `ERRIAL_${p.code_insee}_${p.section}_${p.numero}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (e) {
-    showError('Erreur lors du téléchargement de l\'ERRIAL.');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = label;
   }
 }
 
