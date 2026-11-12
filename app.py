@@ -6,6 +6,7 @@ APIs : BAN, API Carto (Cadastre + GPU), IGN Geoplateforme, Georisques
 from __future__ import annotations
 
 import io
+import time
 import base64
 import re
 import sys
@@ -1478,12 +1479,24 @@ def get_errial_pdf(props: dict, parcel_geom: dict | None) -> tuple[bytes | None,
     if not geom:
         g = _geoms_from_json((avis.get("leaflet") or {}).get("parcelles"))
         geom = g[0] if g else None
+    t0 = time.time()
     pngs = _errial_pngs(avis, geom) if geom else []
-    r = requests.post(f"{ERRIAL_API}/avis/pdf", params={"codeINSEE": insee, "codeParcelle": code, "errial": ""},
-                      json=pngs, headers=hdr, timeout=90)
-    if not r.ok or not r.content.startswith(b"%PDF"):
-        return None, "ERRIAL n'a pas pu générer le PDF"
-    return r.content, ""
+    logger.info("ERRIAL %s : %d cartes en %.1f s", code, len(pngs), time.time() - t0)
+    params = {"codeINSEE": insee, "codeParcelle": code, "errial": ""}
+    # Le serveur ERRIAL coupe parfois la connexion : on reessaie, puis sans les cartes.
+    for attempt, body in enumerate([pngs, pngs, []]):
+        t1 = time.time()
+        try:
+            r = requests.post(f"{ERRIAL_API}/avis/pdf", params=params, json=body,
+                              headers={**hdr, "Connection": "close"}, timeout=45)
+            if r.ok and r.content.startswith(b"%PDF"):
+                logger.info("ERRIAL %s : PDF en %.1f s (essai %d, %d cartes)",
+                            code, time.time() - t1, attempt + 1, len(body))
+                return r.content, ""
+            logger.warning("ERRIAL %s : reponse %s (essai %d)", code, r.status_code, attempt + 1)
+        except requests.exceptions.RequestException as e:
+            logger.warning("ERRIAL %s : %s apres %.1f s (essai %d)", code, e, time.time() - t1, attempt + 1)
+    return None, "Le site ERRIAL n'a pas pu générer le PDF, réessayez dans un instant"
 
 
 @app.route("/api/errial", methods=["POST"])
