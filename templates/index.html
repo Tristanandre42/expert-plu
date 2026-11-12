@@ -1329,7 +1329,7 @@ async function loadUrbanisme(lon, lat) {
         const typeClass = getZoneClass(z.typezone);
         html += `<div class="info-row">
           <span class="k">Zone</span>
-          <span class="v"><span class="status-badge ${typeClass}">${esc(z.typezone)}</span> ${esc(z.libelle)}</span>
+          <span class="v"><span class="status-badge ${typeClass}">${esc(z.libelle || z.typezone)}</span> ${esc(z.libelong || '')}</span>
         </div>`;
         if (z.destdomi) {
           html += infoRow('Destination dominante', z.destdomi);
@@ -1349,7 +1349,7 @@ async function loadUrbanisme(lon, lat) {
     // Vue d'ensemble : zone PLU
     if (zonageData.zones && zonageData.zones.length > 0) {
       const z0 = zonageData.zones[0];
-      setSummaryField('sum-zone', `<span class="status-badge ${getZoneClass(z0.typezone)}">${esc(z0.typezone || '?')}</span>`);
+      setSummaryField('sum-zone', `<span class="status-badge ${getZoneClass(z0.typezone)}">${esc(z0.libelle || z0.typezone || '?')}</span>`);
     } else {
       setSummaryField('sum-zone', '<span class="stat-sub">Aucune</span>');
     }

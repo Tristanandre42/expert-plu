@@ -928,13 +928,16 @@ def make_pdf(parcel: dict, address_props: dict | None = None,  # noqa: C901
         zone_rows = []
         for z in zonage_info:
             zp = z.get("properties", {})
-            zone_type = zp.get("typezone", "?")
-            libelle = zp.get("libelle", zp.get("libelong", ""))
+            zone_type = zp.get("typezone", "")
+            code = zp.get("libelle") or zone_type or "?"
+            libelong = zp.get("libelong", "")
             dest = zp.get("destdomi", "")
             nomfic = zp.get("nomfic", "")
-            zone_label = zone_type
-            if libelle:
-                zone_label += f" — {libelle}"
+            zone_label = code
+            if libelong and libelong.strip().lower() != code.strip().lower():
+                zone_label += f" — {libelong}"
+            if zone_type and zone_type.upper() != code.upper():
+                zone_label += f" (zone {zone_type})"
             zone_rows.append(("Zone", zone_label))
             if dest:
                 zone_rows.append(("Destination dominante", dest))
@@ -1292,6 +1295,14 @@ def api_fiche_gpu():
     return send_file(pdf, mimetype="application/pdf", as_attachment=True, download_name=fname)
 
 
+@app.after_request
+def _no_cache_html(resp):
+    """Toujours servir la derniere version de la page (pas de copie en cache)."""
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -1457,7 +1468,8 @@ def api_zonage():
             p = z.get("properties", {})
             result.append({
                 "typezone": p.get("typezone", ""),
-                "libelle": p.get("libelle", p.get("libelong", "")),
+                "libelle": p.get("libelle") or p.get("typezone", ""),
+                "libelong": p.get("libelong", ""),
                 "destdomi": p.get("destdomi", ""),
                 "nomfic": p.get("nomfic", ""),
                 "urlfic": p.get("urlfic", ""),
