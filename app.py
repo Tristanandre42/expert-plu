@@ -6,6 +6,7 @@ APIs : BAN, API Carto (Cadastre + GPU), IGN Geoplateforme, Georisques
 from __future__ import annotations
 
 import io
+import base64
 import re
 import sys
 import json
@@ -1293,6 +1294,215 @@ def api_fiche_gpu():
     pdf = make_fiche_gpu_pdf(fiche, f"{GPU_SITE}/map/parcel-info/{pid}/")
     fname = f"fiche_gpu_{props.get('code_insee', '')}_{props.get('section', '')}_{props.get('numero', '')}.pdf"
     return send_file(pdf, mimetype="application/pdf", as_attachment=True, download_name=fname)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ERRIAL (etat des risques reglementes pour l'information des acquereurs et
+#  locataires) : PDF officiel genere par errial.georisques.gouv.fr
+# ═══════════════════════════════════════════════════════════════════════════════
+
+ERRIAL_API = "https://errial.georisques.gouv.fr/api"
+ERRIAL_WMS = "https://mapsref.brgm.fr/wxs/georisques/errial_risques?"
+
+
+def errial_codes(props: dict) -> tuple[str, str]:
+    """(code INSEE, code parcelle) au format ERRIAL : prefixe-section-numero@insee.
+    Pour Paris/Lyon/Marseille, ERRIAL raisonne par arrondissement (13201, 69382...)."""
+    dep = str(props.get("code_dep") or "")
+    arr = str(props.get("code_arr") or "000")
+    insee = f"{dep}{arr}" if arr != "000" and dep else str(props.get("code_insee") or "")
+    prefixe = str(props.get("com_abs") or "000")
+    section = str(props.get("section") or "").lstrip("0") or "0"
+    try:
+        numero = str(int(str(props.get("numero") or "0")))
+    except ValueError:
+        numero = str(props.get("numero") or "")
+    return insee, f"{prefixe}-{section}-{numero}@{insee}"
+
+
+def _bbox_around(lon: float, lat: float, half_w_m: float, w: int, h: int) -> list:
+    """BBOX WGS84 centree, aux proportions de l'image (pas de deformation)."""
+    dlon = half_w_m / (111320 * math.cos(math.radians(lat)))
+    dlat = half_w_m * h / w / 110540
+    return [lon - dlon, lat - dlat, lon + dlon, lat + dlat]
+
+
+def _fit_bbox(bbox: list, w: int, h: int, margin: float = 1.15) -> list:
+    """Agrandit une bbox pour qu'elle ait les proportions w/h."""
+    lon, lat = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
+    kx = 111320 * math.cos(math.radians(lat))
+    half_w = max((bbox[2] - bbox[0]) * kx / 2, (bbox[3] - bbox[1]) * 110540 / 2 * w / h)
+    return _bbox_around(lon, lat, max(half_w * margin, 40), w, h)
+
+
+def _geoms_from_json(items) -> list:
+    out = []
+    for it in items or []:
+        try:
+            g = json.loads(it) if isinstance(it, str) else it
+            g = g.get("geometry", g)
+            if g and g.get("coordinates"):
+                out.append(g)
+        except Exception:
+            continue
+    return out
+
+
+def _errial_map(bbox: list, w: int, h: int, layer: str | None = None, params: dict | None = None,
+                outlines: list | None = None, parcel: dict | None = None, mark: bool = False) -> str | None:
+    """Carte PNG (data URL) : Plan IGN + couche de risque BRGM + contours + parcelle."""
+    _load_pdf_libs()
+    from PIL import ImageDraw
+    base_raw = wms_image(bbox, "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", w, h, transparent=False)
+    if not base_raw:
+        return None
+    img = PILImage.open(io.BytesIO(base_raw)).convert("RGBA")
+    if layer:
+        p = {"SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap", "LAYERS": layer, "STYLES": "",
+             "SRS": "EPSG:4326", "BBOX": ",".join(str(v) for v in bbox), "WIDTH": w, "HEIGHT": h,
+             "FORMAT": "image/png", "TRANSPARENT": "true", **(params or {})}
+        try:
+            r = requests.get(ERRIAL_WMS, params=p, timeout=40)
+            if r.ok and r.headers.get("content-type", "").startswith("image"):
+                ov = PILImage.open(io.BytesIO(r.content)).convert("RGBA")
+                alpha = ov.getchannel("A").point(lambda a: int(a * 0.8))
+                ov.putalpha(alpha)
+                img = PILImage.alpha_composite(img, ov)
+        except Exception as e:
+            logger.warning("WMS ERRIAL %s: %s", layer, e)
+    draw = ImageDraw.Draw(img)
+
+    def px(c):
+        return ((c[0] - bbox[0]) / (bbox[2] - bbox[0]) * w, (bbox[3] - c[1]) / (bbox[3] - bbox[1]) * h)
+
+    def rings(g):
+        if g.get("type") == "Polygon":
+            return g["coordinates"]
+        if g.get("type") == "MultiPolygon":
+            return [r for poly in g["coordinates"] for r in poly]
+        return []
+
+    for g, color in outlines or []:
+        for ring in rings(g):
+            pts = [px(c) for c in ring]
+            if len(pts) > 2:
+                draw.line(pts + [pts[0]], fill=color, width=2)
+    if parcel:
+        for ring in rings(parcel):
+            pts = [px(c) for c in ring]
+            if len(pts) > 2:
+                draw.polygon(pts, outline=(69, 86, 116, 255))
+                draw.line(pts + [pts[0]], fill=(220, 38, 38, 255), width=2)
+        if mark:
+            b = bbox_from_geometry(parcel)
+            x, y = px(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
+            draw.ellipse([x - 6, y - 6, x + 6, y + 6], fill=(220, 38, 38, 255), outline=(255, 255, 255, 255), width=2)
+    out = io.BytesIO()
+    img.convert("RGB").save(out, format="PNG", optimize=True)
+    return "data:image/png;base64," + base64.b64encode(out.getvalue()).decode()
+
+
+def _errial_pngs(avis: dict, parcel_geom: dict) -> list:
+    """Reproduit les cartes que le site ERRIAL joint a son PDF."""
+    W, H = 349, 300  # taille des cartes du site (le serveur les place a leur taille en pixels)
+    b = bbox_from_geometry(parcel_geom)
+    lon, lat = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    commune = (avis.get("summary") or {}).get("commune") or {}
+    voisines = commune.get("communesLimitrophes") or []
+    codes = ",".join(f"'{c}'" for c in [commune.get("codeINSEE")] + [v.get("codeINSEE") for v in voisines] if c)
+    zone_geoms = _geoms_from_json([commune.get("multiPolygon")] + [v.get("multiPolygon") for v in voisines])
+    if zone_geoms:
+        zb = [min(bbox_from_geometry(g)[0] for g in zone_geoms), min(bbox_from_geometry(g)[1] for g in zone_geoms),
+              max(bbox_from_geometry(g)[2] for g in zone_geoms), max(bbox_from_geometry(g)[3] for g in zone_geoms)]
+        zone_bbox = _fit_bbox(zb, W, H, 1.02)
+    else:
+        zone_bbox = _bbox_around(lon, lat, 8000, W, H)
+
+    jobs = [("carte-parcelle", lambda: _errial_map(_fit_bbox(b, W, H, 2.2), W, H, parcel=parcel_geom))]
+    if str(commune.get("codeZoneSismicite") or "") in ("2", "3", "4", "5"):
+        jobs.append(("SISMICITE", lambda: _errial_map(zone_bbox, W, H, "risq_zonage_sismique",
+                                                      {"codes_communes": codes}, parcel=parcel_geom, mark=True)))
+    if str(commune.get("classePotentielRadon") or "") in ("2", "3"):
+        jobs.append(("RADON", lambda: _errial_map(zone_bbox, W, H, "risq_radon",
+                                                  {"codes_communes": codes}, parcel=parcel_geom, mark=True)))
+    if avis.get("lentillesArgile"):
+        ab = _bbox_around(lon, lat, 450, W, H)
+        jobs.append(("ARGILE", lambda: _errial_map(ab, W, H, "risq_argiles",
+                                                   {"xmin": ab[0], "ymin": ab[1], "xmax": ab[2], "ymax": ab[3]},
+                                                   parcel=parcel_geom, mark=True)))
+    if avis.get("geogCanalisations"):
+        jobs.append(("CANALISATIONS", lambda: _errial_map(_bbox_around(lon, lat, 700, W, H), W, H, "CANALISATIONS",
+                                                          {"x": lon, "y": lat, "rayon": 500},
+                                                          parcel=parcel_geom, mark=True)))
+    for ppr in avis.get("planPreventionRisquesDTOs") or []:
+        try:
+            name = f"{ppr['idGaspar']}_{ppr['alea']['familleAlea']['aleaNiv1'][0]['code']}"
+        except (KeyError, IndexError, TypeError):
+            continue
+        assiettes = _geoms_from_json(ppr.get("assiettes"))
+        layer, params = None, None
+        if ppr.get("existsInGeorisque"):
+            layer, params = "ppr_georisques", {"idgaspar": ppr.get("idGaspar")}
+        elif ppr.get("existsInGpu") and ppr.get("idAssietteErrial"):
+            layer, params = "ppr_gpu", {"idassiette": ppr.get("idAssietteErrial")}
+        pb = _bbox_around(lon, lat, 700, W, H)
+        jobs.append((name, lambda pb=pb, layer=layer, params=params, a=assiettes: _errial_map(
+            pb, W, H, layer, params, outlines=[(g, (132, 5, 5, 255)) for g in a], parcel=parcel_geom, mark=True)))
+
+    pngs = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futures = [(name, ex.submit(fn)) for name, fn in jobs]
+        for name, fut in futures:
+            try:
+                png = fut.result(timeout=60)
+            except Exception as e:
+                logger.warning("carte ERRIAL %s: %s", name, e)
+                png = None
+            if png:
+                pngs.append({"name": name, "png": png})
+    return pngs
+
+
+def get_errial_pdf(props: dict, parcel_geom: dict | None) -> tuple[bytes | None, str]:
+    insee, code = errial_codes(props)
+    hdr = {"User-Agent": _CAD_UA}
+    r = requests.get(f"{ERRIAL_API}/avis", params={"codeINSEE": insee, "codeParcelle": code, "nomAdresse": ""},
+                     headers=hdr, timeout=60)
+    r.raise_for_status()
+    avis = r.json()
+    if avis.get("hasError"):
+        return None, " ".join(avis.get("errorList") or []) or "Parcelle inconnue d'ERRIAL"
+    geom = parcel_geom
+    if not geom:
+        g = _geoms_from_json((avis.get("leaflet") or {}).get("parcelles"))
+        geom = g[0] if g else None
+    pngs = _errial_pngs(avis, geom) if geom else []
+    r = requests.post(f"{ERRIAL_API}/avis/pdf", params={"codeINSEE": insee, "codeParcelle": code, "errial": ""},
+                      json=pngs, headers=hdr, timeout=90)
+    if not r.ok or not r.content.startswith(b"%PDF"):
+        return None, "ERRIAL n'a pas pu générer le PDF"
+    return r.content, ""
+
+
+@app.route("/api/errial", methods=["POST"])
+def api_errial():
+    body = request.get_json(force=True)
+    parcel = body.get("parcel")
+    if not parcel:
+        return jsonify({"error": "Donnees de parcelle manquantes"}), 400
+    props = parcel.get("properties", {})
+    try:
+        pdf, err = get_errial_pdf(props, parcel.get("geometry"))
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Le site ERRIAL (Géorisques) ne répond pas, réessayez"}), 504
+    except Exception as e:
+        logger.warning("ERRIAL %s: %s", props.get("idu"), e)
+        return jsonify({"error": "Le site ERRIAL (Géorisques) est indisponible pour le moment"}), 502
+    if not pdf:
+        return jsonify({"error": err}), 502
+    fname = (f"ERRIAL_{props.get('code_insee', '')}_{props.get('section', '')}_{props.get('numero', '')}_"
+             f"{datetime.now().strftime('%d%m%Y')}.pdf")
+    return send_file(io.BytesIO(pdf), mimetype="application/pdf", as_attachment=True, download_name=fname)
 
 
 @app.after_request
